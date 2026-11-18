@@ -6,6 +6,33 @@ import XTouchOneAdapter
 import XTouchOneCoreMIDI
 import XTouchOnePanel
 
+/// What the inspector shows. Keys are identified by their address.
+enum PanelSelection: Hashable {
+    case key(UInt8), fader, encoder, jog, meter, lcd, segments
+}
+
+/// The three states of the mode strip. Picking hardware always lands on listening.
+enum ConsoleMode: Hashable { case mock, hardwareListen, hardwareSend }
+
+enum WorkspaceTab: String, CaseIterable, Identifiable {
+    case values, lights, monitor
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .values: "数值"
+        case .lights: "按键灯"
+        case .monitor: "MIDI 监视"
+        }
+    }
+    var systemImage: String {
+        switch self {
+        case .values: "slider.horizontal.3"
+        case .lights: "lightbulb"
+        case .monitor: "waveform"
+        }
+    }
+}
+
 /// Owns the console value and the CoreMIDI objects on the main actor.
 @MainActor
 @Observable
@@ -24,8 +51,12 @@ final class AppModel {
     private(set) var lastError: String?
     var sourceID: Int32?
     var destinationID: Int32?
+    var selection: PanelSelection? = .fader
+    var tab = WorkspaceTab.values
     var blink = false
     var showAddresses = true
+    var lcdInvertUpper = false
+    var lcdInvertLower = false
     var recallTarget = 64.0
     var lcdUpper = "Choir"
     var lcdLower = "36R"
@@ -47,6 +78,19 @@ final class AppModel {
         get { console.demoLinks }
         set { console.demoLinks = newValue }
     }
+
+    var consoleMode: ConsoleMode { link == .mock ? .mock : allowWrite ? .hardwareSend : .hardwareListen }
+
+    func setMode(_ mode: ConsoleMode) {
+        guard mode != consoleMode else { return }
+        switch mode {
+        case .mock: configure(link: .mock)
+        case .hardwareListen: configure(link: .hardware, allowWrite: false, allowRecall: false)
+        case .hardwareSend: configure(link: .hardware, allowWrite: true)
+        }
+    }
+
+    var profileSummary: String { "MIDI 模式 \(mode.rawValue) · 通道 \(channel)" }
 
     private func attempt(_ body: () throws -> Void) {
         do { try body(); lastError = nil } catch { lastError = "\(error)" }
@@ -141,7 +185,7 @@ final class AppModel {
     }
 
     func showLCD() {
-        show(.lcd(upper: lcdUpper, lower: lcdLower, color: lcdColor, invertUpper: false, invertLower: false))
+        show(.lcd(upper: lcdUpper, lower: lcdLower, color: lcdColor, invertUpper: lcdInvertUpper, invertLower: lcdInvertLower))
     }
 
     func showSegments() { show(XTouchOneSegmentFont.display(assignment: assignment, counter: counter)) }

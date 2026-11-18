@@ -4,180 +4,173 @@ import XTouchOneAdapter
 import XTouchOnePanel
 import XTouchOneSimulator
 
-enum Palette {
-    static let body = Color(red: 0.13, green: 0.13, blue: 0.14)
-    static let well = Color(red: 0.08, green: 0.08, blue: 0.09)
-    static let cap = Color(red: 0.42, green: 0.42, blue: 0.44)
-    static let rail = Color(red: 0.72, green: 0.73, blue: 0.75)
-    static let legend = Color(white: 0.82)
-    static let amber = Color(red: 1.0, green: 0.62, blue: 0.12)
-
-    static func light(_ light: XTouchOnePanelLight) -> Color {
-        switch light {
-        case .amber: Color(red: 1.0, green: 0.86, blue: 0.35)
-        case .green: Color(red: 0.45, green: 1.0, blue: 0.45)
-        case .red: Color(red: 1.0, green: 0.4, blue: 0.38)
-        case .blue: Color(red: 0.4, green: 0.9, blue: 1.0)
-        case .white: Color(white: 0.96)
-        }
-    }
-
-    static func lcd(_ color: XTouchOneLCDColor) -> Color {
-        switch color {
-        case .black: Color(white: 0.12)
-        case .red: Color(red: 0.9, green: 0.2, blue: 0.2)
-        case .green: Color(red: 0.2, green: 0.8, blue: 0.3)
-        case .yellow: Color(red: 0.95, green: 0.85, blue: 0.2)
-        case .blue: Color(red: 0.25, green: 0.45, blue: 0.95)
-        case .magenta: Color(red: 0.85, green: 0.3, blue: 0.85)
-        case .cyan: Color(red: 0.25, green: 0.85, blue: 0.9)
-        case .white: Color(white: 0.92)
-        }
-    }
-}
-
-/// The device face, drawn at a fixed 600 × 730 design size.
-struct PanelView: View {
+/// The device face inside a chassis card, drawn at a fixed design size and scaled as a whole.
+struct SurfacePanelView: View {
     let model: AppModel
-    static let size = CGSize(width: 600, height: 730)
+    static let naturalSize = CGSize(width: 600, height: 692)
+
+    private var mock: Bool { model.link == .mock }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .center, spacing: 14) {
-                EncoderView(model: model).frame(width: 96, height: 96)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("UNIVERSAL CONTROL SURFACE").font(.system(size: 13, weight: .medium)).kerning(3)
-                        .foregroundStyle(Palette.legend)
-                    SegmentDisplayView(device: model.console.shown)
+        VStack(alignment: .leading, spacing: 12) {
+            header
+            HStack(alignment: .top, spacing: 14) {
+                EncoderCell(model: model).frame(width: 104)
+                VStack(alignment: .trailing, spacing: 10) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("UNIVERSAL CONTROL SURFACE").font(.system(size: 10, weight: .bold)).tracking(2.4)
+                            .foregroundStyle(.secondary)
+                        SegmentDisplayView(model: model)
+                    }
+                    KeyGroup(model: model, title: "CHANNEL", group: .channel)
                 }
+                .frame(maxWidth: .infinity, alignment: .trailing)
             }
-            HStack(alignment: .bottom, spacing: 14) {
-                LCDView(lcd: model.console.shown.lcd).frame(width: 96, height: 58)
-                Spacer(minLength: 0)
-                KeyRow(model: model, title: "CHANNEL", group: .channel)
-            }
-            HStack(alignment: .bottom, spacing: 14) {
-                Text("X TOUCH ONE").font(.system(size: 17, weight: .semibold)).kerning(2).foregroundStyle(Palette.legend)
-                    .frame(width: 150, alignment: .leading)
-                Spacer(minLength: 0)
-                KeyRow(model: model, title: "FUNCTION", group: .function)
-            }
-            HStack(alignment: .top, spacing: 18) {
-                HStack(alignment: .top, spacing: 10) {
-                    FaderView(model: model).frame(width: 70)
-                    MeterView(value: model.console.shown.meter).frame(width: 16).padding(.top, 30)
+            HStack(alignment: .top, spacing: 14) {
+                VStack(spacing: 10) {
+                    LCDView(model: model).frame(width: 104, height: 58)
+                    HStack(alignment: .top, spacing: 10) {
+                        FaderCell(model: model).frame(width: 72)
+                        MeterView(model: model).padding(.top, 14)
+                    }
                 }
-                .frame(width: 110)
-                VStack(alignment: .leading, spacing: 12) {
-                    KeyRow(model: model, title: "TRANSPORT", group: .transportModes)
-                    HStack(spacing: 8) {
+                .frame(width: 104)
+                VStack(alignment: .trailing, spacing: 12) {
+                    KeyGroup(model: model, title: "FUNCTION", group: .function)
+                    KeyGroup(model: model, title: "TRANSPORT", group: .transportModes)
+                    HStack(spacing: 6) {
                         ForEach(XTouchOnePanelLayout.keys(in: .transport)) { key in
-                            KeyView(model: model, key: key, width: 70, height: 34, symbol: Self.transportSymbols[key.label])
+                            KeyCell(model: model, key: key, width: 76, symbol: Self.transportSymbols[key.label])
                         }
                     }
-                    HStack(alignment: .top, spacing: 16) {
-                        VStack(spacing: 16) {
-                            BankView(model: model)
-                            NavigationView(model: model)
-                        }
+                    HStack(alignment: .center, spacing: 12) {
+                        BankView(model: model)
+                        NavigationCluster(model: model)
                         VStack(alignment: .trailing, spacing: 6) {
                             if let scrub = XTouchOnePanelLayout.keys(in: .scrub).first {
-                                KeyView(model: model, key: scrub, width: 34, height: 34, showLabel: true)
+                                KeyCell(model: model, key: scrub, width: 62)
                             }
-                            JogView(model: model).frame(width: 210, height: 210)
+                            JogCell(model: model).frame(width: 176, height: 198)
                         }
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
-        .padding(.horizontal, 34).padding(.vertical, 22)
-        .frame(width: Self.size.width, height: Self.size.height, alignment: .top)
+        .padding(18)
+        .frame(width: Self.naturalSize.width, height: Self.naturalSize.height, alignment: .topLeading)
         .background {
-            ZStack {
-                RoundedRectangle(cornerRadius: 22).fill(Palette.rail)
-                RoundedRectangle(cornerRadius: 14).fill(Palette.body).padding(.horizontal, 16).padding(.vertical, 4)
-            }
+            RoundedRectangle(cornerRadius: 18)
+                .fill(LinearGradient(colors: [Theme.chassisTop, Theme.chassisBottom], startPoint: .top, endPoint: .bottom))
+                .shadow(color: .black.opacity(0.45), radius: 14, y: 6)
+        }
+        .overlay { RoundedRectangle(cornerRadius: 18).stroke(Theme.stroke) }
+    }
+
+    private var header: some View {
+        HStack(spacing: 10) {
+            Text("X-TOUCH ONE").font(.system(size: 17, weight: .black, design: .rounded)).tracking(2)
+            Text(mock ? "MOCK DEVICE" : "HARDWARE MIRROR")
+                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                .foregroundStyle(mock ? Theme.value : .green)
+                .padding(.horizontal, 7).padding(.vertical, 3)
+                .background((mock ? Theme.value : Color.green).opacity(0.14), in: Capsule())
+            Spacer()
+            Text(mock ? "拖动推子 / 旋钮、按下按键 = 模拟实体操作" : "≈ 最近的输入 · — 尚未报告")
+                .font(.system(size: 10)).foregroundStyle(.secondary)
         }
     }
 
     static let transportSymbols = ["REW": "backward.fill", "FWD": "forward.fill", "STOP": "stop.fill",
-                                   "PLAY": "play.fill", "RECORD": "circle.fill"]
+                                   "PLAY": "play.fill", "RECORD": "record.circle"]
 }
 
-struct KeyRow: View {
+private func selectionStroke(_ selected: Bool, radius: CGFloat = 5) -> some View {
+    RoundedRectangle(cornerRadius: radius)
+        .stroke(selected ? Theme.selection : Color.black.opacity(0.5), lineWidth: selected ? 1.5 : 1)
+}
+
+struct KeyGroup: View {
     let model: AppModel
     let title: String
     let group: XTouchOnePanelGroup
 
     var body: some View {
-        VStack(spacing: 4) {
-            Text(title).font(.system(size: 10, weight: .semibold)).kerning(1.5).foregroundStyle(Palette.legend)
-            HStack(alignment: .top, spacing: 8) {
-                ForEach(XTouchOnePanelLayout.keys(in: group)) { key in
-                    KeyView(model: model, key: key, width: 34, height: 34, showLabel: true)
-                }
+        VStack(spacing: 5) {
+            Text(title).font(.system(size: 9, weight: .bold)).tracking(1.4).foregroundStyle(.secondary)
+            HStack(spacing: 6) {
+                ForEach(XTouchOnePanelLayout.keys(in: group)) { KeyCell(model: model, key: $0, width: 54) }
             }
         }
         .padding(8)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Palette.well))
+        .background(Theme.slot.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
     }
 }
 
-/// One key. Press and release follow the pointer; a secondary click cycles the key's light through the display path.
-struct KeyView: View {
+/// One key, in the same cell style as the other consoles: an LED bar or symbol over a small label.
+struct KeyCell: View {
     let model: AppModel
     let key: XTouchOnePanelKey
     var width: CGFloat
-    var height: CGFloat
-    var showLabel = false
     var symbol: String?
-    @State private var held = false
+    var compactLabel: String?
+    @State private var pressing = false
 
-    private var state: XTouchOneButtonLED { model.console.shown.buttonLEDs[key.address] ?? .off }
-    private var lit: Bool { state == .on || (state == .flash && model.blink) }
+    private var light: XTouchOneButtonLED { model.console.shown.buttonLEDs[key.address] ?? .off }
+    private var lit: Bool { light == .on || (light == .flash && model.blink) }
     private var down: Bool { model.console.pressed.contains(key.button.elementID) }
+    private var selected: Bool { model.selection == .key(key.address) }
 
     var body: some View {
-        VStack(spacing: 3) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 5)
-                    .fill(lit ? Palette.light(key.light) : Palette.cap)
-                    .shadow(color: lit ? Palette.light(key.light).opacity(0.8) : .clear, radius: 6)
-                    .overlay(RoundedRectangle(cornerRadius: 5).stroke(.black.opacity(0.6), lineWidth: 1))
-                    .brightness(down ? -0.22 : 0)
-                if let symbol {
-                    Image(systemName: symbol).font(.system(size: 12)).foregroundStyle(.black.opacity(0.65))
+        let color = Theme.led(key.light)
+        RoundedRectangle(cornerRadius: 5)
+            .fill(LinearGradient(colors: [Color(white: lit ? 0.3 : 0.24), Color(white: 0.15)], startPoint: .top, endPoint: .bottom))
+            .overlay {
+                VStack(spacing: 2) {
+                    if let symbol {
+                        Image(systemName: symbol).font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(lit ? color : Color.secondary)
+                            .shadow(color: lit ? color.opacity(0.9) : .clear, radius: 4)
+                    } else {
+                        Capsule().fill(lit ? color : Theme.ledOff).frame(width: min(22, width - 14), height: 4)
+                            .shadow(color: lit ? color.opacity(0.9) : .clear, radius: 4)
+                    }
+                    Text(compactLabel ?? key.label).font(.system(size: 7.5, weight: .medium))
+                        .foregroundStyle(lit ? Color.primary : Color.secondary).lineLimit(1).minimumScaleFactor(0.7)
+                    if model.showAddresses {
+                        Text("B\(key.address)").font(.system(size: 7, weight: .medium, design: .monospaced))
+                            .foregroundStyle(Color.secondary.opacity(0.7))
+                    }
                 }
-                if model.showAddresses {
-                    Text("\(key.address)").font(.system(size: 8, design: .monospaced)).foregroundStyle(.black.opacity(0.75))
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing).padding(2)
-                }
+                .padding(.horizontal, 2)
             }
-            .frame(width: width, height: height)
-            .scaleEffect(down ? 0.95 : 1)
+            .overlay { selectionStroke(selected) }
+            .frame(width: width, height: 38)
+            .scaleEffect(down || pressing ? 0.95 : 1)
+            .brightness(down ? 0.12 : 0)
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0)
                 .onChanged { _ in
-                    if !held { held = true; model.act(.button(key.address, pressed: true)) }
+                    guard !pressing else { return }
+                    pressing = true
+                    model.selection = .key(key.address)
+                    model.act(.button(key.address, pressed: true))
                 }
                 .onEnded { _ in
-                    held = false
+                    pressing = false
                     model.act(.button(key.address, pressed: false))
                 })
             .contextMenu {
-                Button("灯：下一个状态") { model.cycleLight(key) }
-                ForEach([("熄灭", XTouchOneButtonLED.off), ("常亮", .on), ("闪烁", .flash)], id: \.0) { name, state in
+                ForEach([("熄灭", XTouchOneButtonLED.off), ("点亮", .on), ("闪烁", .flash)], id: \.0) { name, state in
                     Button(name) { model.show(.buttonLED(key.button, state)) }
                 }
             }
-            .accessibilityIdentifier("key.\(key.address)")
-            .accessibilityLabel(key.label)
-            if showLabel {
-                Text(key.label).font(.system(size: 7.5, weight: .medium)).foregroundStyle(Palette.legend)
-                    .lineLimit(1).fixedSize()
-                    .frame(width: width)
-            }
-        }
+            .accessibilityElement(children: .ignore)
+            .accessibilityIdentifier("button.\(key.address)")
+            .accessibilityLabel("B\(key.address) \(key.label)")
+            .accessibilityValue(light == .on ? "点亮" : light == .flash ? "闪烁" : "熄灭")
+            .accessibilityAddTraits(.isButton)
+            .help("操作 B\(key.address) · \(key.label)")
     }
 }
 
@@ -185,49 +178,59 @@ struct BankView: View {
     let model: AppModel
     var body: some View {
         let keys = XTouchOnePanelLayout.keys(in: .bank)
-        VStack(spacing: 4) {
-            Text("FADER BANK").font(.system(size: 8, weight: .semibold)).foregroundStyle(Palette.legend)
-            HStack(spacing: 14) { ForEach(keys.prefix(2)) { KeyView(model: model, key: $0, width: 36, height: 30) } }
-            Text("CHANNEL").font(.system(size: 8, weight: .semibold)).foregroundStyle(Palette.legend)
-            HStack(spacing: 14) { ForEach(keys.suffix(2)) { KeyView(model: model, key: $0, width: 36, height: 30) } }
+        VStack(spacing: 5) {
+            Text("FADER BANK").font(.system(size: 8, weight: .bold)).tracking(1).foregroundStyle(.secondary)
+            HStack(spacing: 6) {
+                KeyCell(model: model, key: keys[0], width: 46, symbol: "arrowtriangle.left.fill", compactLabel: "BANK")
+                KeyCell(model: model, key: keys[1], width: 46, symbol: "arrowtriangle.right.fill", compactLabel: "BANK")
+            }
+            Text("CHANNEL").font(.system(size: 8, weight: .bold)).tracking(1).foregroundStyle(.secondary)
+            HStack(spacing: 6) {
+                KeyCell(model: model, key: keys[2], width: 46, symbol: "arrowtriangle.left.fill", compactLabel: "CH")
+                KeyCell(model: model, key: keys[3], width: 46, symbol: "arrowtriangle.right.fill", compactLabel: "CH")
+            }
         }
         .padding(8)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Palette.well))
+        .background(Theme.slot.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
     }
 }
 
-struct NavigationView: View {
+struct NavigationCluster: View {
     let model: AppModel
     var body: some View {
         let keys = Dictionary(uniqueKeysWithValues: XTouchOnePanelLayout.keys(in: .navigation).map { ($0.label, $0) })
         VStack(spacing: 4) {
-            KeyView(model: model, key: keys["UP"]!, width: 32, height: 28)
+            KeyCell(model: model, key: keys["UP"]!, width: 38, symbol: "arrowtriangle.up.fill")
             HStack(spacing: 4) {
-                KeyView(model: model, key: keys["LEFT"]!, width: 32, height: 28)
-                KeyView(model: model, key: keys["ZOOM"]!, width: 32, height: 28)
-                KeyView(model: model, key: keys["RIGHT"]!, width: 32, height: 28)
+                KeyCell(model: model, key: keys["LEFT"]!, width: 38, symbol: "arrowtriangle.left.fill")
+                KeyCell(model: model, key: keys["ZOOM"]!, width: 38)
+                KeyCell(model: model, key: keys["RIGHT"]!, width: 38, symbol: "arrowtriangle.right.fill")
             }
-            KeyView(model: model, key: keys["DOWN"]!, width: 32, height: 28)
+            KeyCell(model: model, key: keys["DOWN"]!, width: 38, symbol: "arrowtriangle.down.fill")
         }
     }
 }
 
 /// Twelve seven-segment digits with dots, drawn from the masks last sent.
 struct SegmentDisplayView: View {
-    let device: XTouchOneSimulatedDevice
+    let model: AppModel
 
     var body: some View {
+        let device = model.console.shown
         let masks = device.segments ?? Array(repeating: 0, count: 12)
         let dots = device.segmentDots ?? [0, 0]
         HStack(spacing: 5) {
             ForEach(0..<12, id: \.self) { index in
                 let dot = index < 7 ? dots[0] >> UInt8(index) & 1 : dots[1] >> UInt8(index - 7) & 1
-                SegmentDigit(mask: masks[index], dot: dot == 1).frame(width: 24, height: 40)
-                if index == 1 { Spacer().frame(width: 18) }
+                SegmentDigit(mask: masks[index], dot: dot == 1).frame(width: 22, height: 36)
+                if index == 1 { Spacer().frame(width: 16) }
             }
         }
         .padding(.horizontal, 12).padding(.vertical, 9)
-        .background(RoundedRectangle(cornerRadius: 6).fill(.black))
+        .background(.black, in: RoundedRectangle(cornerRadius: 6))
+        .overlay { selectionStroke(model.selection == .segments, radius: 6) }
+        .contentShape(Rectangle())
+        .onTapGesture { model.selection = .segments }
         .accessibilityIdentifier("segments")
     }
 }
@@ -250,31 +253,34 @@ struct SegmentDigit: View {
             ]
             for (bit, bar) in bars.enumerated() {
                 let on = mask >> UInt8(bit) & 1 == 1
-                context.fill(Path(roundedRect: bar, cornerRadius: t / 2), with: .color(on ? Palette.amber : Palette.amber.opacity(0.08)))
+                context.fill(Path(roundedRect: bar, cornerRadius: t / 2), with: .color(on ? Theme.ring : Theme.ring.opacity(0.07)))
             }
             let point = CGRect(x: size.width - t, y: h - t, width: t, height: t)
-            context.fill(Path(ellipseIn: point), with: .color(dot ? Palette.amber : Palette.amber.opacity(0.08)))
+            context.fill(Path(ellipseIn: point), with: .color(dot ? Theme.ring : Theme.ring.opacity(0.07)))
         }
     }
 }
 
 struct LCDView: View {
-    let lcd: XTouchOneSimulatedLCD?
+    let model: AppModel
 
     var body: some View {
-        let color = lcd.map { Palette.lcd($0.color) } ?? Color(white: 0.16)
+        let lcd = model.console.shown.lcd
+        let color = lcd.map { Theme.lcd($0.color) } ?? Color(white: 0.16)
+        let ink = lcd?.color == .black ? Color(white: 0.75) : Color(white: 0.06)
         VStack(spacing: 0) {
-            line(lcd?.upper ?? "", inverted: lcd?.invertUpper ?? false, color: color)
-            line(lcd?.lower ?? "", inverted: lcd?.invertLower ?? false, color: color)
+            line(lcd?.upper ?? "", inverted: lcd?.invertUpper ?? false, color: color, ink: ink)
+            line(lcd?.lower ?? "", inverted: lcd?.invertLower ?? false, color: color, ink: ink)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 4))
-        .overlay(RoundedRectangle(cornerRadius: 4).stroke(.black, lineWidth: 2))
+        .clipShape(RoundedRectangle(cornerRadius: 5))
+        .overlay { selectionStroke(model.selection == .lcd, radius: 5) }
+        .contentShape(Rectangle())
+        .onTapGesture { model.selection = .lcd }
         .accessibilityIdentifier("lcd")
     }
 
-    private func line(_ text: String, inverted: Bool, color: Color) -> some View {
-        let ink = lcd?.color == .black ? Color(white: 0.75) : Color(white: 0.06)
-        return Text(text.padding(toLength: 7, withPad: " ", startingAt: 0))
+    private func line(_ text: String, inverted: Bool, color: Color, ink: Color) -> some View {
+        Text(text.padding(toLength: 7, withPad: " ", startingAt: 0))
             .font(.system(size: 17, weight: .medium, design: .monospaced))
             .foregroundStyle(inverted ? color : ink)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -283,145 +289,179 @@ struct LCDView: View {
 }
 
 struct MeterView: View {
-    let value: UInt8?
+    let model: AppModel
 
     var body: some View {
-        let lit = Int((Double(value ?? 0) / 127 * 8).rounded())
-        VStack(spacing: 5) {
+        let lit = Int((Double(model.console.shown.meter ?? 0) / 127 * 8).rounded())
+        VStack(spacing: 4) {
             ForEach((0..<8).reversed(), id: \.self) { index in
-                let color: Color = index == 7 ? .red : index >= 5 ? Palette.amber : .green
-                RoundedRectangle(cornerRadius: 1.5).fill(index < lit ? color : color.opacity(0.12)).frame(width: 7, height: 13)
+                let color: Color = index == 7 ? .red : index >= 5 ? Theme.ring : .green
+                RoundedRectangle(cornerRadius: 1.5).fill(index < lit ? color : Theme.ledOff).frame(width: 7, height: 12)
+                    .shadow(color: index < lit ? color.opacity(0.8) : .clear, radius: 2)
             }
         }
+        .padding(5)
+        .background(Theme.slot, in: RoundedRectangle(cornerRadius: 4))
+        .overlay { selectionStroke(model.selection == .meter, radius: 4) }
+        .contentShape(Rectangle())
+        .onTapGesture { model.selection = .meter }
         .accessibilityIdentifier("meter")
     }
 }
 
-/// The encoder: drag up or down to turn one detent per 9 points, click to press. The ring shows the last ring value sent.
-struct EncoderView: View {
+/// The encoder cell: a ring of LEDs, a knob, the last ring value, and its push key.
+/// Drag up or down to turn, one detent per 9 points.
+struct EncoderCell: View {
     let model: AppModel
     @State private var detents = 0
-    @State private var held = false
     private var push: XTouchOnePanelKey? { XTouchOnePanelLayout.keys(in: .encoder).first }
 
     var body: some View {
         let ring = model.console.shown.encoderRing
         let lit = ring.map { Int((Double($0) / 127 * 12).rounded()) } ?? -1
-        ZStack {
-            ForEach(0..<13, id: \.self) { index in
-                let angle = Angle.degrees(-135 + Double(index) * 22.5)
-                Capsule().fill(index <= lit ? Palette.amber : Palette.amber.opacity(0.12))
-                    .frame(width: 4, height: 10)
-                    .offset(y: -42)
-                    .rotationEffect(angle)
+        VStack(spacing: 4) {
+            ZStack {
+                ForEach(0..<13, id: \.self) { index in
+                    Circle().fill(index <= lit ? Theme.ring : Theme.ledOff).frame(width: 4, height: 4)
+                        .shadow(color: index <= lit ? Theme.ring.opacity(0.8) : .clear, radius: 2)
+                        .offset(y: -26)
+                        .rotationEffect(.degrees(-135 + 270 * Double(index) / 12))
+                }
+                Circle().fill(RadialGradient(colors: [Color(white: 0.32), Color(white: 0.1)], center: .center, startRadius: 2, endRadius: 22))
+                    .frame(width: 40, height: 40)
+                Capsule().fill(Color(white: 0.85)).frame(width: 2.5, height: 12).offset(y: -12)
+                    .rotationEffect(.degrees(Double(model.console.encoderTicks) * 12))
             }
-            Circle().fill(RadialGradient(colors: [Color(white: 0.3), Color(white: 0.08)], center: .center, startRadius: 2, endRadius: 30))
-                .frame(width: 58, height: 58)
-                .scaleEffect(held ? 0.94 : 1)
-            Capsule().fill(Color(white: 0.7)).frame(width: 3, height: 12).offset(y: -19)
-                .rotationEffect(.degrees(Double(model.console.encoderTicks) * 12))
-            if model.showAddresses, let push {
-                Text("\(push.address)").font(.system(size: 8, design: .monospaced)).foregroundStyle(Palette.legend)
-            }
+            .frame(width: 62, height: 60)
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0)
+                .onChanged { drag in
+                    model.selection = .encoder
+                    let target = Int((-drag.translation.height / 9).rounded(.towardZero))
+                    while detents != target {
+                        let clockwise = target > detents
+                        detents += clockwise ? 1 : -1
+                        model.act(.encoder(clockwise: clockwise))
+                    }
+                }
+                .onEnded { _ in detents = 0 })
+            .help("上下拖动转动编码器")
+            Text("Encoder").font(.system(size: 9, weight: .medium)).foregroundStyle(Theme.value)
+            Text(ring.map { String($0) } ?? "—").font(.system(size: 11, weight: .medium, design: .monospaced))
+            if let push { KeyCell(model: model, key: push, width: 62, compactLabel: "PUSH") }
         }
-        .contentShape(Circle())
-        .gesture(DragGesture(minimumDistance: 0)
-            .onChanged { drag in
-                let target = Int((-drag.translation.height / 9).rounded(.towardZero))
-                while detents != target {
-                    let clockwise = target > detents
-                    detents += clockwise ? 1 : -1
-                    model.act(.encoder(clockwise: clockwise))
-                }
-            }
-            .onEnded { drag in
-                if detents == 0, abs(drag.translation.height) < 3, abs(drag.translation.width) < 3, let push {
-                    held = true
-                    model.act(.button(push.address, pressed: true))
-                    model.act(.button(push.address, pressed: false))
-                    held = false
-                }
-                detents = 0
-            })
+        .padding(6)
+        .background(Theme.slot.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
+        .overlay { selectionStroke(model.selection == .encoder, radius: 8) }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("encoder")
     }
 }
 
 /// The jog wheel: drag around the centre, one tick per 12 degrees.
-struct JogView: View {
+struct JogCell: View {
     let model: AppModel
     @State private var lastAngle: Double?
     @State private var carried = 0.0
 
     var body: some View {
-        GeometryReader { geometry in
-            let center = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
-            ZStack {
-                Circle().fill(Color(white: 0.05))
-                Circle().stroke(Color(white: 0.92), lineWidth: 5).padding(14)
-                    .shadow(color: .white.opacity(0.7), radius: 6)
-                Circle().fill(RadialGradient(colors: [Color(white: 0.16), Color(white: 0.05)], center: .center, startRadius: 4, endRadius: 80))
-                    .padding(24)
-                Circle().fill(Color(white: 0.02)).frame(width: 34, height: 34).offset(y: -52)
-                    .rotationEffect(.degrees(Double(model.console.jogTicks) * 12))
-            }
-            .contentShape(Circle())
-            .gesture(DragGesture(minimumDistance: 2)
-                .onChanged { drag in
-                    let angle = atan2(drag.location.y - center.y, drag.location.x - center.x) * 180 / .pi
-                    defer { lastAngle = angle }
-                    guard let lastAngle else { return }
-                    var delta = angle - lastAngle
-                    if delta > 180 { delta -= 360 } else if delta < -180 { delta += 360 }
-                    carried += delta
-                    while abs(carried) >= 12 {
-                        model.act(.jog(clockwise: carried > 0))
-                        carried += carried > 0 ? -12 : 12
-                    }
+        VStack(spacing: 4) {
+            GeometryReader { geometry in
+                let center = CGPoint(x: geometry.size.width / 2, y: geometry.size.height / 2)
+                ZStack {
+                    Circle().fill(Theme.slot)
+                    Circle().stroke(Color(white: 0.85), lineWidth: 3).padding(10).shadow(color: .white.opacity(0.5), radius: 5)
+                    Circle().fill(RadialGradient(colors: [Color(white: 0.2), Color(white: 0.07)], center: .center, startRadius: 4, endRadius: 80))
+                        .padding(18)
+                    Circle().fill(Color(white: 0.03)).frame(width: 30, height: 30).offset(y: -48)
+                        .rotationEffect(.degrees(Double(model.console.jogTicks) * 12))
                 }
-                .onEnded { _ in lastAngle = nil; carried = 0 })
+                .contentShape(Circle())
+                .gesture(DragGesture(minimumDistance: 2)
+                    .onChanged { drag in
+                        model.selection = .jog
+                        let angle = atan2(drag.location.y - center.y, drag.location.x - center.x) * 180 / .pi
+                        defer { lastAngle = angle }
+                        guard let lastAngle else { return }
+                        var delta = angle - lastAngle
+                        if delta > 180 { delta -= 360 } else if delta < -180 { delta += 360 }
+                        carried += delta
+                        while abs(carried) >= 12 {
+                            model.act(.jog(clockwise: carried > 0))
+                            carried += carried > 0 ? -12 : 12
+                        }
+                    }
+                    .onEnded { _ in lastAngle = nil; carried = 0 })
+                .onTapGesture { model.selection = .jog }
+            }
+            .aspectRatio(1, contentMode: .fit)
+            HStack(spacing: 6) {
+                Text("Jog").font(.system(size: 9, weight: .medium)).foregroundStyle(Theme.value)
+                Text("\(model.console.jogTicks)").font(.system(size: 11, weight: .medium, design: .monospaced))
+            }
         }
+        .overlay { if model.selection == .jog { selectionStroke(true, radius: 8).padding(-4) } }
+        .help("绕圆心拖动转动拨轮")
         .accessibilityIdentifier("jog")
     }
 }
 
-/// The fader. Dragging reports touch, travel and release, as a hand on the mock device would.
-/// On the hardware link it only shows the reported position, or a dashed cap while that is unknown.
-struct FaderView: View {
+/// The fader cell. Dragging reports touch, travel and release, as a hand on the mock device would.
+/// On hardware it mirrors the reported position, or shows a dashed cap while that is unknown.
+struct FaderCell: View {
     let model: AppModel
     @State private var dragging = false
-    private let travel: CGFloat = 300
-    private let cap: CGFloat = 44
+    private let travel: CGFloat = 270
+    private let cap: CGFloat = 34
 
     var body: some View {
         let position = model.console.faderPosition
         let touched = model.console.faderTouched == true
-        ZStack(alignment: .top) {
-            RoundedRectangle(cornerRadius: 3).fill(.black).frame(width: 8, height: travel + cap)
-            VStack(spacing: 0) {
-                ForEach(0..<11, id: \.self) { _ in
-                    Rectangle().fill(Palette.legend.opacity(0.6)).frame(width: 46, height: 1)
-                    Spacer(minLength: 0)
+        let selected = model.selection == .fader
+        VStack(spacing: 6) {
+            ZStack(alignment: .top) {
+                RoundedRectangle(cornerRadius: 3).fill(Theme.slot).frame(width: 7, height: travel + cap)
+                VStack(spacing: 0) {
+                    ForEach(0..<6, id: \.self) { index in
+                        Rectangle().fill(Color.white.opacity(0.12)).frame(width: 30, height: 1)
+                        if index < 5 { Spacer(minLength: 0) }
+                    }
+                }
+                .frame(height: travel).offset(y: cap / 2)
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(position == nil ? AnyShapeStyle(Color.clear)
+                        : AnyShapeStyle(LinearGradient(colors: [Color(white: 0.42), Color(white: 0.2)], startPoint: .top, endPoint: .bottom)))
+                    .overlay { Rectangle().fill(Color.white.opacity(position == nil ? 0 : 0.85)).frame(height: 2) }
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 4)
+                            .stroke(touched ? Theme.touch : Color.white.opacity(0.25),
+                                    style: StrokeStyle(lineWidth: touched ? 2 : 1, dash: position == nil ? [4, 3] : []))
+                    }
+                    .frame(width: 44, height: cap)
+                    .offset(y: travel * (1 - CGFloat(position ?? 0) / 127))
+                if touched {
+                    Image(systemName: "hand.raised.fill").font(.system(size: 9)).foregroundStyle(Theme.touch)
+                        .offset(x: 30, y: travel * (1 - CGFloat(position ?? 0) / 127) + cap / 2 - 5)
                 }
             }
-            .frame(height: travel).offset(y: cap / 2)
-            RoundedRectangle(cornerRadius: 4)
-                .fill(position == nil ? AnyShapeStyle(.clear) : AnyShapeStyle(LinearGradient(colors: [Color(white: 0.85), Color(white: 0.45), Color(white: 0.8)], startPoint: .top, endPoint: .bottom)))
-                .overlay(RoundedRectangle(cornerRadius: 4).stroke(touched ? Palette.amber : Color(white: 0.6),
-                                                                 style: StrokeStyle(lineWidth: touched ? 2.5 : 1, dash: position == nil ? [4, 3] : [])))
-                .frame(width: 34, height: cap)
-                .offset(y: travel * (1 - CGFloat(position ?? 0) / 127))
+            .frame(height: travel + cap)
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 0)
+                .onChanged { drag in
+                    if !dragging { dragging = true; model.selection = .fader; model.act(.touch(true)) }
+                    let fraction = 1 - (drag.location.y - cap / 2) / travel
+                    let value = UInt8(max(0, min(127, (fraction * 127).rounded())))
+                    if value != model.console.faderPosition { model.act(.fader(value)) }
+                }
+                .onEnded { _ in dragging = false; model.act(.touch(false)) })
+            Text("Fader").font(.system(size: 10, weight: .medium)).foregroundStyle(Theme.value)
+            Text(position.map { String($0) } ?? "—").font(.system(size: 12, weight: .medium, design: .monospaced))
         }
-        .frame(height: travel + cap)
-        .contentShape(Rectangle())
-        .gesture(DragGesture(minimumDistance: 0)
-            .onChanged { drag in
-                if !dragging { dragging = true; model.act(.touch(true)) }
-                let fraction = 1 - (drag.location.y - cap / 2) / travel
-                let value = UInt8(max(0, min(127, (fraction * 127).rounded())))
-                if value != model.console.faderPosition { model.act(.fader(value)) }
-            }
-            .onEnded { _ in dragging = false; model.act(.touch(false)) })
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity)
+        .background(selected ? Theme.selection.opacity(0.12) : Theme.slot.opacity(0.35), in: RoundedRectangle(cornerRadius: 8))
+        .overlay { RoundedRectangle(cornerRadius: 8).stroke(touched ? Theme.touch : selected ? Theme.selection : Color.clear, lineWidth: 1.5) }
+        .help("拖动推子：触摸、移动、松手")
         .accessibilityIdentifier("fader")
     }
 }

@@ -1,132 +1,210 @@
 #if os(macOS)
 import SwiftUI
 import XTouchOneAdapter
-import XTouchOneCoreMIDI
 import XTouchOnePanel
 
-struct InspectorView: View {
+/// The right column: what the selected control is, its state, and its MIDI addresses.
+struct ControlInspectorView: View {
     @Bindable var model: AppModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Form {
-                Section("连接") {
-                    Picker("来源", selection: Binding(get: { model.link }, set: { model.configure(link: $0) })) {
-                        Text("模拟设备").tag(XTouchOneConsole.Link.mock)
-                        Text("实体端点").tag(XTouchOneConsole.Link.hardware)
-                    }
-                    .pickerStyle(.segmented)
-                    .accessibilityIdentifier("link")
-                    Picker("模式", selection: Binding(get: { model.mode }, set: { model.configure(mode: $0) })) {
-                        ForEach(XTouchOneMIDIMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                    }
-                    Picker("通道", selection: Binding(get: { model.channel }, set: { model.configure(channel: $0) })) {
-                        ForEach(UInt8(1)...16, id: \.self) { Text("\($0)").tag($0) }
-                    }
-                    if model.link == .hardware { hardware }
-                }
-                Section("显示测试") {
-                    Toggle("演示联动（按键点灯、编码器带灯环、推子带电平表）", isOn: $model.demoLinks)
-                    Toggle("在按键上显示地址", isOn: $model.showAddresses)
-                    HStack {
-                        TextField("上行", text: $model.lcdUpper)
-                        TextField("下行", text: $model.lcdLower)
-                    }
-                    HStack {
-                        Picker("颜色", selection: $model.lcdColor) {
-                            ForEach(Self.colors, id: \.0) { Text($0.1).tag($0.0) }
-                        }
-                        Button("写 LCD") { model.showLCD() }.accessibilityIdentifier("show-lcd")
-                    }
-                    HStack {
-                        TextField("分配", text: $model.assignment).frame(width: 56)
-                        TextField("计数", text: $model.counter)
-                        Button("写数码管") { model.showSegments() }.accessibilityIdentifier("show-segments")
-                    }
-                    Text("按键上右键可切换灯的状态。按键地址与数码管段位顺序是暂定的，等实机采样确认。")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                Section("电机召回") {
-                    HStack {
-                        Slider(value: $model.recallTarget, in: 0...127, step: 1)
-                        Text("\(Int(model.recallTarget))").monospacedDigit().frame(width: 30)
-                        Button("召回") { model.recall() }.accessibilityIdentifier("recall")
-                    }
-                    Text("需要先触摸并松开推子。触摸状态未知或正在触摸时拒绝。")
-                        .font(.caption).foregroundStyle(.secondary)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                if let selection = model.selection {
+                    identity(selection)
+                    state(selection)
+                    addresses(selection)
+                    notes(selection)
+                } else {
+                    Text("在左侧面板选择一个控件").foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, minHeight: 160).panelStyle()
                 }
             }
-            .formStyle(.grouped)
-            if let error = model.lastError {
-                Text(error).font(.caption).foregroundStyle(.red).padding(.horizontal, 20)
-            }
-            LogView(entries: model.console.log)
+            .padding(14)
         }
     }
 
-    @ViewBuilder private var hardware: some View {
-        Picker("输入", selection: $model.sourceID) {
-            Text("未选择").tag(Int32?.none)
-            ForEach(model.sources, id: \.uniqueID) { Text(Self.name($0)).tag(Int32?.some($0.uniqueID)) }
+    private func names(_ selection: PanelSelection) -> (short: String, long: String) {
+        switch selection {
+        case .key(let address): ("B\(address)", XTouchOnePanelLayout.key(at: address)?.label ?? "")
+        case .fader: ("F", "电动推子")
+        case .encoder: ("ENC", "编码器与灯环")
+        case .jog: ("JOG", "拨轮")
+        case .meter: ("MTR", "电平表")
+        case .lcd: ("LCD", "液晶屏")
+        case .segments: ("7SEG", "数码管")
         }
-        .disabled(model.isConnected)
-        Picker("输出", selection: $model.destinationID) {
-            Text("不打开").tag(Int32?.none)
-            ForEach(model.destinations, id: \.uniqueID) { Text(Self.name($0)).tag(Int32?.some($0.uniqueID)) }
-        }
-        .disabled(model.isConnected)
-        HStack {
-            Button(model.isConnected ? "断开" : "连接") { model.isConnected ? model.disconnect() : model.connect() }
-                .disabled(!model.isConnected && model.sourceID == nil)
-                .accessibilityIdentifier("connect")
-            Button("刷新端点") { model.refreshEndpoints() }.disabled(model.isConnected)
-            Spacer()
-            Text(model.isConnected ? "已连接 · 代次 \(model.console.session.generation)" : "未连接").foregroundStyle(.secondary)
-        }
-        Toggle("允许向设备写显示", isOn: Binding(get: { model.allowWrite }, set: { model.configure(allowWrite: $0) }))
-            .accessibilityIdentifier("allow-write")
-        Toggle("允许电机召回", isOn: Binding(get: { model.allowRecall }, set: { model.configure(allowRecall: $0) }))
-            .disabled(!model.allowWrite)
-            .accessibilityIdentifier("allow-recall")
-        Text("连接本身不发送任何字节。缺省只监听；面板上画的灯和显示是“已发送”的内容，不代表设备实际显示。")
-            .font(.caption).foregroundStyle(.secondary)
     }
 
-    private static func name(_ endpoint: XTouchOneMIDIEndpoint) -> String {
-        endpoint.name + (endpoint.isVirtual ? "（虚拟）" : "") + (endpoint.isOffline ? "（离线）" : "")
+    private func identity(_ selection: PanelSelection) -> some View {
+        let name = names(selection)
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(name.short).font(.system(size: 30, weight: .black, design: .rounded))
+                Text(name.long).font(.callout).foregroundStyle(.secondary)
+            }
+            Text("\(model.profileSummary) · \(model.link == .mock ? "Mock 设备" : "实体设备")")
+                .font(.caption.monospaced()).foregroundStyle(.secondary)
+        }
+        .panelStyle()
+        .accessibilityIdentifier("inspector.identity")
     }
 
-    private static let colors: [(XTouchOneLCDColor, String)] = [
-        (.black, "黑"), (.red, "红"), (.green, "绿"), (.yellow, "黄"), (.blue, "蓝"), (.magenta, "品红"), (.cyan, "青"), (.white, "白"),
-    ]
-}
-
-struct LogView: View {
-    let entries: [XTouchOneConsole.Entry]
-
-    var body: some View {
-        ScrollViewReader { proxy in
-            List(entries) { entry in
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(entry.kind == .input ? "IN" : entry.kind == .output ? "OUT" : "··")
-                        .foregroundStyle(entry.kind == .input ? .green : entry.kind == .output ? .orange : .secondary)
-                        .frame(width: 26, alignment: .leading)
-                    Text(entry.bytes.prefix(8).map { String(format: "%02X", $0) }.joined(separator: " ")
-                        + (entry.bytes.count > 8 ? " …" : ""))
-                        .frame(width: 150, alignment: .leading)
-                    Text(entry.text).lineLimit(1)
+    @ViewBuilder
+    private func state(_ selection: PanelSelection) -> some View {
+        switch selection {
+        case .key(let address): keyState(address)
+        case .fader: faderState
+        case .encoder:
+            VStack(alignment: .leading, spacing: 10) {
+                SectionTitle("编码器", icon: "dial.medium")
+                HStack(spacing: 24) {
+                    Readout(title: "灯环（已发送）", value: model.console.shown.encoderRing.map { String($0) } ?? "—", color: Theme.ring)
+                    Readout(title: "输入累计", value: "\(model.console.encoderTicks)", color: Theme.observed)
                 }
-                .font(.system(size: 10.5, design: .monospaced))
-                .listRowInsets(EdgeInsets(top: 1, leading: 4, bottom: 1, trailing: 4))
-                .id(entry.id)
+                softwareSlider(model.console.shown.encoderRing) { model.show(.encoderRing($0)) }
+                Text("灯环与输入互不相干：转动编码器不会自己改变灯环，除非打开演示联动。")
+                    .font(.caption2).foregroundStyle(.secondary)
             }
-            .listStyle(.plain)
-            .onChange(of: entries.last?.id) { _, last in
-                if let last { proxy.scrollTo(last, anchor: .bottom) }
+            .panelStyle()
+        case .jog:
+            VStack(alignment: .leading, spacing: 10) {
+                SectionTitle("拨轮", icon: "circle.dashed")
+                Readout(title: "输入累计", value: "\(model.console.jogTicks)", color: Theme.observed)
+                Text("拨轮只有输入，没有任何显示或反馈地址。").font(.caption2).foregroundStyle(.secondary)
+            }
+            .panelStyle()
+        case .meter:
+            VStack(alignment: .leading, spacing: 10) {
+                SectionTitle("电平表", icon: "chart.bar.fill")
+                Readout(title: "已发送", value: model.console.shown.meter.map { String($0) } ?? "—")
+                softwareSlider(model.console.shown.meter) { model.show(.meter($0)) }
+            }
+            .panelStyle()
+        case .lcd: lcdState
+        case .segments:
+            VStack(alignment: .leading, spacing: 10) {
+                SectionTitle("数码管", icon: "textformat.123")
+                HStack {
+                    TextField("分配", text: $model.assignment).frame(width: 56)
+                    TextField("计数", text: $model.counter)
+                }
+                Button("写入数码管") { model.showSegments() }.accessibilityIdentifier("inspector.writeSegments")
+                Text("左边两位是分配区，右边十位是计数区。段位顺序是应用自己的约定，等实机确认。")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+            .panelStyle()
+        }
+    }
+
+    private func keyState(_ address: UInt8) -> some View {
+        let key = XTouchOnePanelLayout.key(at: address)
+        let light = model.console.shown.buttonLEDs[address] ?? .off
+        let down = key.map { model.console.pressed.contains($0.button.elementID) } ?? false
+        return VStack(alignment: .leading, spacing: 10) {
+            SectionTitle("按键", icon: "button.programmable")
+            HStack(spacing: 24) {
+                Readout(title: "输入", value: down ? "按下" : "松开", color: down ? Theme.touch : Theme.observed)
+                Readout(title: "灯（已发送）", value: light == .on ? "点亮" : light == .flash ? "闪烁" : "熄灭",
+                        color: light == .off ? .secondary : Theme.value)
+            }
+            if let key {
+                Picker("软件写入", selection: Binding(get: { light }, set: { model.show(.buttonLED(key.button, $0)) })) {
+                    Text("熄灭").tag(XTouchOneButtonLED.off)
+                    Text("点亮").tag(XTouchOneButtonLED.on)
+                    Text("闪烁").tag(XTouchOneButtonLED.flash)
+                }
+                .pickerStyle(.segmented).accessibilityIdentifier("inspector.light")
             }
         }
-        .frame(minHeight: 150)
-        .accessibilityIdentifier("log")
+        .panelStyle()
     }
+
+    private var faderState: some View {
+        let position = model.console.faderPosition
+        let touched = model.console.faderTouched
+        return VStack(alignment: .leading, spacing: 10) {
+            SectionTitle("电动推子", icon: "slider.vertical.3")
+            HStack(spacing: 24) {
+                Readout(title: "目标", value: "\(Int(model.recallTarget))")
+                Readout(title: "观察", value: position.map { String($0) } ?? "—", color: Theme.observed)
+                Readout(title: "触摸", value: touched.map { $0 ? "是" : "否" } ?? "未知",
+                        color: touched == true ? Theme.touch : .secondary)
+            }
+            HStack(spacing: 8) {
+                Text("召回目标").font(.caption).foregroundStyle(.secondary)
+                Slider(value: Binding(get: { model.recallTarget }, set: { model.recallTarget = $0.rounded() }), in: 0...127).accessibilityIdentifier("inspector.recallTarget")
+            }
+            if touched != false {
+                Label(touched == true ? "推子被触摸：召回会被拒绝，松手后再试" : "触摸状态未知：先触摸并松开推子，才允许召回",
+                      systemImage: "hand.raised.fill")
+                    .font(.caption).foregroundStyle(Theme.touch)
+            }
+            Text("电机只在标题栏“电机归位…”确认后移动一次，连接、换模式和重连都不会自动移动。召回尝试之后，观察位置回到未知，等设备重新报告。")
+                .font(.caption2).foregroundStyle(.secondary)
+        }
+        .panelStyle()
+    }
+
+    private var lcdState: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionTitle("液晶屏", icon: "rectangle.and.text.magnifyingglass")
+            TextField("上行（最多 7 个 ASCII 字符）", text: $model.lcdUpper)
+            TextField("下行（最多 7 个 ASCII 字符）", text: $model.lcdLower)
+            HStack(spacing: 6) {
+                Text("颜色").font(.caption).foregroundStyle(.secondary)
+                ForEach(Self.colors, id: \.self) { color in
+                    Circle().fill(Theme.lcd(color)).frame(width: 15, height: 15)
+                        .overlay { Circle().stroke(model.lcdColor == color ? Color.white : Color.white.opacity(0.2), lineWidth: model.lcdColor == color ? 2 : 1) }
+                        .onTapGesture { model.lcdColor = color }
+                }
+            }
+            HStack {
+                Toggle("上行反相", isOn: $model.lcdInvertUpper)
+                Toggle("下行反相", isOn: $model.lcdInvertLower)
+            }
+            Button("写入液晶屏") { model.showLCD() }.accessibilityIdentifier("inspector.writeLCD")
+        }
+        .panelStyle()
+    }
+
+    private func softwareSlider(_ value: UInt8?, onChange: @escaping (UInt8) -> Void) -> some View {
+        HStack(spacing: 8) {
+            Text("软件写入").font(.caption).foregroundStyle(.secondary)
+            Slider(value: Binding(get: { Double(value ?? 0) }, set: { onChange(UInt8($0.rounded())) }), in: 0...127)
+                .accessibilityIdentifier("inspector.slider")
+        }
+    }
+
+    private func addresses(_ selection: PanelSelection) -> some View {
+        let notes = model.mode == .midi || model.mode == .midiRelative
+        let channel = "ch\(model.channel)"
+        let pair: (input: String?, feedback: String?) = switch selection {
+        case .key(let address): ("\(notes ? "Note" : "CC") \(channel) #\(address)", "\(notes ? "Note" : "CC") \(channel) #\(address)")
+        case .fader: ("CC \(channel) #70 · 触摸 Note #110", "CC \(channel) #70（电机目标，仅本地召回）")
+        case .encoder: ("CC \(channel) #80", "CC \(channel) #80（灯环）")
+        case .jog: ("CC \(channel) #88", nil)
+        case .meter: (nil, "CC \(channel) #90")
+        case .lcd: (nil, "SysEx 00 20 32 41 4C")
+        case .segments: (nil, "SysEx 00 20 32 41 37")
+        }
+        return VStack(alignment: .leading, spacing: 8) {
+            SectionTitle("MIDI 地址", icon: "arrow.left.arrow.right")
+            if let input = pair.input { LabeledContent("输入 (TX)") { Text(input).font(.callout.monospaced()) } }
+            if let feedback = pair.feedback { LabeledContent("反馈 (RX)") { Text(feedback).font(.callout.monospaced()) } }
+            Text("地址来自 Behringer 的 MIDI 模式文档，尚无实机证据。").font(.caption2).foregroundStyle(.secondary)
+        }
+        .panelStyle()
+    }
+
+    @ViewBuilder
+    private func notes(_ selection: PanelSelection) -> some View {
+        if case .key = selection {
+            Label("这个地址对应哪个面板按键是暂定的：文档只列出地址 0–34，没有给出与面板标签的对应。", systemImage: "info.circle")
+                .font(.caption).foregroundStyle(.secondary).panelStyle()
+        }
+    }
+
+    private static let colors: [XTouchOneLCDColor] = [.black, .red, .green, .yellow, .blue, .magenta, .cyan, .white]
 }
 #endif

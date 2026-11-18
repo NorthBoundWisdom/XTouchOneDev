@@ -25,7 +25,10 @@ let package = Package(
         .library(name: "XTouchOneAdapter", targets: ["XTouchOneAdapter"]),
         // Offline stand-in for the device. No production target may depend on it.
         .library(name: "XTouchOneCapture", targets: ["XTouchOneCapture"]),
+        // The endpoint classes exist only where CoreMIDI does; the packet codec builds everywhere.
+        .library(name: "XTouchOneCoreMIDI", targets: ["XTouchOneCoreMIDI"]),
         .executable(name: "xtouch-one-review", targets: ["xtouch-one-review"]),
+        .executable(name: "xtouch-one-monitor", targets: ["xtouch-one-monitor"]),
         .library(name: "XTouchOneSimulator", targets: ["XTouchOneSimulator"]),
     ],
     dependencies: [.package(path: "build/dependencies/ControlSurfaceKit")],
@@ -34,6 +37,10 @@ let package = Package(
         .testTarget(name: "XTouchOneAdapterTests", dependencies: ["XTouchOneAdapter"] + kit),
         .target(name: "XTouchOneSimulator", dependencies: ["XTouchOneAdapter"]),
         .target(name: "XTouchOneCapture", dependencies: ["XTouchOneAdapter"]),
+        .target(name: "XTouchOneCoreMIDI"),
+        .executableTarget(name: "xtouch-one-monitor",
+                          dependencies: ["XTouchOneAdapter", "XTouchOneCapture", "XTouchOneCoreMIDI"] + kit),
+        .testTarget(name: "XTouchOneCoreMIDITests", dependencies: ["XTouchOneCoreMIDI"]),
         .executableTarget(name: "xtouch-one-review", dependencies: ["XTouchOneCapture"]),
         .testTarget(name: "XTouchOneCaptureTests", dependencies: ["XTouchOneAdapter", "XTouchOneCapture", "XTouchOneSimulator"]),
         .testTarget(name: "XTouchOneSimulatorTests", dependencies: ["XTouchOneAdapter", "XTouchOneSimulator"] + kit),

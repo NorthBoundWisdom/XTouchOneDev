@@ -16,7 +16,35 @@ public enum XTouchOneDisplay: Equatable, Sendable {
     case segmentDisplay(segments: [UInt8], dotsLow: UInt8, dotsHigh: UInt8)
 }
 
+extension XTouchOneDisplay {
+    /// The stable display target, also used as the repaint queue key.
+    public var targetID: String {
+        switch self {
+        case .buttonLED(let button, _): button.elementID
+        case .encoderRing: Element.encoder
+        case .meter: Element.meter
+        case .lcd: Element.lcd
+        case .segmentDisplay: Element.segments
+        }
+    }
+}
+
 extension XTouchOneMIDIProfile {
+    /// The final wire check: true only for the display messages this adapter encodes.
+    /// A fader target (CC 70) is never a display payload in any mode.
+    func isDisplayPayload(_ bytes: [UInt8]) -> Bool {
+        if bytes.first == 0xF0 {
+            let header: [UInt8] = [0xF0, 0x00, 0x20, 0x32, 0x41]
+            guard bytes.count > 7, Array(bytes.prefix(5)) == header, bytes.last == 0xF7,
+                  bytes.dropFirst().dropLast().allSatisfy({ $0 < 0x80 }) else { return false }
+            return (bytes[5] == 0x4C && bytes.count == 23) || (bytes[5] == 0x37 && bytes.count == 21)
+        }
+        guard bytes.count == 3, bytes[0] & 0x0F == channelNibble, bytes[1] < 0x80, bytes[2] < 0x80 else { return false }
+        let status = bytes[0] & 0xF0
+        if status == mode.buttonStatus, XTouchOneButton(rawValue: bytes[1]) != nil { return true }
+        return status == 0xB0 && (bytes[1] == Address.encoder || bytes[1] == Address.meter)
+    }
+
     /// Builds a complete display message in memory for offline inspection.
     public func encodeDisplay(_ display: XTouchOneDisplay) throws -> [UInt8] {
         switch display {

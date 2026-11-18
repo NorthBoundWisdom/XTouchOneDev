@@ -14,18 +14,18 @@ guard verify.terminationStatus == 0 else {
     fatalError("Run python3 -B configs/control_surface_kit_dependency.py ensure before building.")
 }
 
+let kit: [Target.Dependency] = [
+    "SurfaceDeviceContracts", "SurfaceBindingContext", "SurfaceConnectionState", "SurfaceFeedbackPlanning",
+].map { .product(name: $0, package: "ControlSurfaceKit") }
+
 let package = Package(
     name: "XTouchOneDev",
     platforms: [.macOS(.v14)],
     products: [.library(name: "XTouchOneAdapter", targets: ["XTouchOneAdapter"])],
     dependencies: [.package(path: "build/dependencies/ControlSurfaceKit")],
     targets: [
-        .target(name: "XTouchOneAdapter", dependencies: [
-            .product(name: "SurfaceDeviceContracts", package: "ControlSurfaceKit"),
-        ]),
-        .testTarget(name: "XTouchOneAdapterTests", dependencies: [
-            "XTouchOneAdapter", .product(name: "SurfaceDeviceContracts", package: "ControlSurfaceKit"),
-        ]),
+        .target(name: "XTouchOneAdapter", dependencies: kit),
+        .testTarget(name: "XTouchOneAdapterTests", dependencies: ["XTouchOneAdapter"] + kit),
     ],
     swiftLanguageModes: [.v6]
 )

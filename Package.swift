@@ -28,13 +28,17 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [
         .library(name: "XTouchOneAdapter", targets: ["XTouchOneAdapter"]),
-        // Offline stand-in for the device. No production target may depend on it.
+        // Offline stand-in for the device. The adapter, surface and transport never depend on it;
+        // the app uses it for its mock link and to draw what was sent.
         .library(name: "XTouchOneSurface", targets: ["XTouchOneSurface"]),
         .library(name: "XTouchOneCapture", targets: ["XTouchOneCapture"]),
         // The endpoint classes exist only where CoreMIDI does; the packet codec builds everywhere.
         .library(name: "XTouchOneCoreMIDI", targets: ["XTouchOneCoreMIDI"]),
         .executable(name: "xtouch-one-review", targets: ["xtouch-one-review"]),
         .executable(name: "xtouch-one-monitor", targets: ["xtouch-one-monitor"]),
+        // The panel app. Its sources compile to a stub outside macOS.
+        .executable(name: "XTouchOneApp", targets: ["XTouchOneApp"]),
+        .library(name: "XTouchOnePanel", targets: ["XTouchOnePanel"]),
         .library(name: "XTouchOneSimulator", targets: ["XTouchOneSimulator"]),
     ],
     dependencies: [
@@ -49,6 +53,10 @@ let package = Package(
         .target(name: "XTouchOneSurface", dependencies: ["XTouchOneAdapter"] + kit + contracts),
         .testTarget(name: "XTouchOneSurfaceTests",
                     dependencies: ["XTouchOneAdapter", "XTouchOneSurface", "XTouchOneSimulator"] + kit + contracts),
+        .target(name: "XTouchOnePanel", dependencies: ["XTouchOneAdapter", "XTouchOneSimulator"] + kit),
+        .testTarget(name: "XTouchOnePanelTests", dependencies: ["XTouchOneAdapter", "XTouchOnePanel"] + kit),
+        .executableTarget(name: "XTouchOneApp",
+                          dependencies: ["XTouchOneAdapter", "XTouchOnePanel", "XTouchOneCoreMIDI", "XTouchOneSimulator"] + kit),
         .target(name: "XTouchOneCoreMIDI"),
         .executableTarget(name: "xtouch-one-monitor",
                           dependencies: ["XTouchOneAdapter", "XTouchOneCapture", "XTouchOneCoreMIDI"] + kit),

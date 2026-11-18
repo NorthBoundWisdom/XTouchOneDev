@@ -1,0 +1,111 @@
+import SurfaceFeedbackPlanning
+import Testing
+import XTouchOneAdapter
+import XTouchOnePanel
+
+private func console(_ link: XTouchOneConsole.Link = .mock, mode: XTouchOneMIDIMode = .midi,
+                     output: XTouchOneOutputPolicy = .write, mechanism: XTouchOneMechanismPolicy = .localRecall,
+                     demo: Bool = true) throws -> XTouchOneConsole {
+    try XTouchOneConsole(link: link, profile: XTouchOneMIDIProfile(mode: mode, channel: 1), displayRate: .unlimited,
+                         outputPolicy: output, mechanismPolicy: mechanism, demoLinks: demo)
+}
+
+private let route = try! XTouchOneRoute(inputID: "11", outputID: "22", transportOrigin: .physicalUSB)
+
+struct PanelTests {
+    @Test func theLayoutCoversEveryDocumentedAddressOnce() {
+        let keys = XTouchOnePanelLayout.keys
+        #expect(keys.map(\.address) == Array(0...34) && Set(keys.map(\.id)).count == 35)
+        #expect(XTouchOnePanelGroup.allCases.map { XTouchOnePanelLayout.keys(in: $0).count } == [6, 6, 7, 5, 4, 5, 1, 1])
+        #expect(XTouchOnePanelLayout.key(at: 34)?.group == .encoder && XTouchOnePanelLayout.key(at: 35) == nil)
+        #expect(XTouchOnePanelLayout.addressesAreProvisional)
+    }
+
+    @Test func segmentTextFillsTheAssignmentAndCounterFields() {
+        guard case .segmentDisplay(let masks, 0, 0) = XTouchOneSegmentFont.display(assignment: "Pn", counter: "42") else {
+            Issue.record("expected a segment display"); return
+        }
+        #expect(masks == [0x73, 0x54, 0, 0, 0, 0, 0, 0, 0, 0, 0x66, 0x5B])
+        #expect(XTouchOneSegmentFont.mask(for: "?") == 0 && XTouchOneSegmentFont.mask(for: "p") == 0x73)
+        guard case .segmentDisplay(let long, _, _) = XTouchOneSegmentFont.display(assignment: "ABC", counter: "123456789012") else { return }
+        #expect(long.count == 12 && long[1] == 0x7C && long[2] == 0x4F)
+    }
+
+    @Test(arguments: XTouchOneMIDIMode.allCases)
+    func mockGesturesDriveTheSessionAndTheDemoLights(_ mode: XTouchOneMIDIMode) throws {
+        var console = try console(mode: mode)
+        try console.operate(.button(3, pressed: true), at: 1)
+        #expect(console.pressed == ["button.3"])
+        try console.operate(.button(3, pressed: false), at: 2)
+        try console.operate(.touch(true), at: 3)
+        try console.operate(.fader(200), at: 4)
+        try console.operate(.jog(clockwise: false), at: 5)
+        try console.operate(.encoder(clockwise: true), at: 6)
+        try console.pump(at: 7)
+        #expect(console.pressed.isEmpty && console.mockFader == 127 && console.faderPosition == 127)
+        #expect(console.faderTouched == true && console.jogTicks == -1 && console.encoderTicks == 1)
+        #expect(console.shown.buttonLEDs == [3: .on] && console.shown.meter == 127)
+        #expect(console.shown.lcd?.upper == "Fader  " && console.shown.lcd?.lower == "127    ")
+        #expect(console.shown.encoderRing == (mode == .midi || mode == .controlChange ? 1 : 5))
+        #expect(console.shown.segments?.suffix(2) == [0x40, 0x06] && console.shown.faderTargets.isEmpty)
+        #expect(console.log.filter { $0.kind == .input }.count == 6 && console.log.filter { $0.kind == .output }.count == 5)
+
+        try console.operate(.button(3, pressed: true), at: 8)
+        try console.pump(at: 9)
+        #expect(console.shown.buttonLEDs[3] == .off)
+    }
+
+    @Test func mockRecallNeedsAReleaseAndMovesTheMockFader() throws {
+        var console = try console(demo: false)
+        #expect(try console.recallFader(to: 90, at: 1) == .refused(.contactUnknown))
+        try console.operate(.touch(true), at: 2)
+        try console.operate(.fader(10), at: 3)
+        #expect(try console.recallFader(to: 90, at: 4) == .refused(.touched) && console.mockFader == 10)
+        try console.operate(.touch(false), at: 5)
+        guard case .send = try console.recallFader(to: 90, at: 6) else { Issue.record("expected a send"); return }
+        #expect(console.mockFader == 90 && console.shown.faderTargets == [90])
+        #expect(console.log.last?.text == "fader accepted" && console.log.last?.bytes == [0xB0, 70, 90])
+        #expect(console.shown.buttonLEDs.isEmpty, "without the demo links input changes no display")
+    }
+
+    @Test func theHardwareLinkIgnoresPanelGesturesAndShowsOnlyAcceptedSends() throws {
+        var console = try console(.hardware, demo: false)
+        try console.operate(.button(1, pressed: true), at: 0)
+        #expect(console.log.isEmpty && console.faderPosition == nil && console.faderTouched == nil)
+        #expect(try console.request(.meter(5), at: 1) == .refused(.notConnected))
+        try console.attach(route, at: 2)
+        try console.receive([0x90, 1, 127], at: 3)
+        try console.receive([0xB0, 70, 44], at: 3)
+        #expect(console.pressed == ["button.1"] && console.faderPosition == 44)
+
+        _ = try console.request(.meter(5), at: 4)
+        try console.pump(at: 4)
+        #expect(console.shown.meter == nil && console.log.last?.text.contains("no transport") == true)
+        _ = try console.request(.meter(6), at: 5)
+        var written: [[UInt8]] = []
+        try console.pump(at: 5) { written.append($0); return .rejected(reason: "io") }
+        #expect(console.shown.meter == nil && written == [[0xB0, 90, 6]])
+        _ = try console.request(.meter(7), at: 7)
+        try console.pump(at: 7) { written.append($0); return .accepted }
+        #expect(console.shown.meter == 7 && written.count == 2)
+
+        try console.detach(at: 8)
+        #expect(console.pressed.isEmpty && console.shown.meter == nil && console.faderPosition == nil)
+        #expect(console.log.last?.text == "disconnected")
+    }
+
+    @Test func anObservingHardwareConsoleNeverCallsTheTransport() throws {
+        var console = try console(.hardware, output: .observe, mechanism: .disabled)
+        try console.attach(route, at: 0)
+        try console.receive([0x90, 110, 127], at: 1)
+        try console.receive([0x90, 110, 0], at: 1)
+        try console.receive([0x90, 2, 127], at: 1)
+        var calls = 0
+        try console.pump(at: 2) { _ in calls += 1; return .accepted }
+        #expect(try console.recallFader(to: 1, at: 3) { _ in calls += 1; return .accepted } == .refused(.observeOnly))
+        #expect(calls == 0 && console.shown.buttonLEDs.isEmpty)
+        #expect(console.log.contains { $0.text == "display button.2 refused: observeOnly" })
+        for index in 0..<300 { console.note("n\(index)", at: 4) }
+        #expect(console.log.count == XTouchOneConsole.logLimit && console.log.last?.text == "n299")
+    }
+}

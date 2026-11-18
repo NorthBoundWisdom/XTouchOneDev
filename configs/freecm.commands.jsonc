@@ -10,7 +10,7 @@
         "args": ["-B", "configs/setup_local_project.py"],
         "platforms": ["darwin"],
         "default": true,
-        "defaults": {"build": "debug", "run": "monitor-list", "test": "unit"},
+        "defaults": {"build": "debug", "run": "app", "test": "unit"},
         "readiness": {
           "inputs": [
             "Package.swift", "configs/setup_local_project.py", "configs/workflow.py",
@@ -51,12 +51,24 @@
         "configurations": ["local-swift", "linux-swift"]
       },
       {
+        "id": "app-bundle", "label": "Panel App Bundle",
+        "description": "Build and ad-hoc sign build/app/XTouchOneApp.app",
+        "command": "python3", "args": ["-B", "configs/workflow.py", "app", "--bundle-only"],
+        "configurations": ["local-swift"]
+      },
+      {
         "id": "release", "label": "Release",
         "command": "python3", "args": ["-B", "configs/workflow.py", "build", "--configuration", "release"],
         "configurations": ["local-swift", "linux-swift"]
       }
     ],
     "run": [
+      {
+        "id": "app", "label": "Panel App",
+        "description": "Build, bundle and run XTouchOneApp in the FreeCM terminal; Ctrl+C stops it. It starts on the mock device and opens no MIDI endpoint",
+        "command": "python3", "args": ["-B", "configs/workflow.py", "app"],
+        "configurations": ["local-swift"]
+      },
       {
         "id": "monitor-list", "label": "List MIDI Endpoints",
         "description": "Build and run `xtouch-one-monitor list`. It reads CoreMIDI's endpoint list and sends nothing",

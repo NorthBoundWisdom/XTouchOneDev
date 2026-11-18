@@ -20,7 +20,9 @@ swift test --scratch-path build/swiftpm
 | `XTouchOneSurface` | 接到 SurfacePlugins 控制合同的实体 surface | macOS、Linux |
 | `XTouchOneCapture`、`xtouch-one-review` | 录制文件格式与离线审查 | macOS、Linux |
 | `XTouchOneCoreMIDI`、`xtouch-one-monitor` | 数据包编解码（全平台）、CoreMIDI 端点与监听命令（仅 macOS） | 见左 |
-| `XTouchOneSimulator` | 按文档独立实现的设备模型，仅测试使用 | macOS、Linux |
+| `XTouchOnePanel` | 面板布局、七段字形、应用背后的控制台状态 | macOS、Linux |
+| `XTouchOneApp` | SwiftUI 面板应用 | 仅 macOS |
+| `XTouchOneSimulator` | 按文档独立实现的设备模型，供测试和应用的模拟来源使用 | macOS、Linux |
 
 ## FreeCM
 
@@ -30,14 +32,16 @@ swift test --scratch-path build/swiftpm
 |---|---|---|---|
 | Config | Local macOS Swift / Linux Swift | `python3 -B configs/setup_local_project.py` | 物化两个锁定的依赖，校验命令清单和 Swift 包，成功后写 `build/configured.json` |
 | Build | Debug（缺省）、Release | `python3 -B configs/workflow.py build` | 全部库和命令行，产物在 `build/swiftpm/` |
-| Run | List MIDI Endpoints（macOS 缺省） | `python3 -B configs/workflow.py run xtouch-one-monitor list` | 只读地列出 CoreMIDI 端点，不发送 |
+| Build | Panel App Bundle（仅 macOS） | `python3 -B configs/workflow.py app --bundle-only` | `build/app/XTouchOneApp.app`，ad-hoc 签名 |
+| Run | Panel App（macOS 缺省） | `python3 -B configs/workflow.py app` | 构建、打包并在终端里运行面板应用，Ctrl+C 结束。启动时是模拟设备，不打开任何 MIDI 端点 |
+| Run | List MIDI Endpoints | `python3 -B configs/workflow.py run xtouch-one-monitor list` | 只读地列出 CoreMIDI 端点，不发送 |
 | Run | Monitor Usage、Review Usage | `python3 -B configs/workflow.py run --usage <命令>` | 打印用法。`record` 和 `show` 需要端点 id，从终端运行 |
 | Test | Swift Tests（缺省） | `python3 -B configs/workflow.py test` | 与硬件无关的全部测试，不打开任何 MIDI 端点 |
 | Test | CoreMIDI Loopback（仅 macOS） | `python3 -B configs/workflow.py test --coremidi-loopback` | 另外运行回环测试，只用测试自建的虚拟端点 |
 
-没有 Package 动作，因为还没有交付件。面板里没有任何会向设备发送的命令。配置输入变化后面板显示 **Needs Config**，重新执行 Config 即可。
+没有 Package 动作，因为还没有交付件。FreeCM 的命令本身都不向设备发送；面板应用里向实体端点写入需要在界面上显式打开。配置输入变化后面板显示 **Needs Config**，重新执行 Config 即可。
 
-`configs/source_root_workflow.py` 提供插件的初始化与更新入口（`--initrepo`、`--update`，都执行同一个配置），`--initlock` 报告两份锁文件，`--cleanbuild [--dry-run]` 只删除 `build/configured.json` 和 `build/swiftpm`，保留 `build/dependencies`。`configs/_vendor/` 是从 XTouchCompactDev 原样复制的清单校验器（MIT，来源见其中的 `UPSTREAM.json`），不需要 FreeCM 检出，Swift 目标不使用它。无界面校验：`python3 -B configs/validate_repo_commands.py`。
+`configs/source_root_workflow.py` 提供插件的初始化与更新入口（`--initrepo`、`--update`，都执行同一个配置），`--initlock` 报告两份锁文件，`--cleanbuild [--dry-run]` 只删除 `build/configured.json`、`build/swiftpm` 和 `build/app`，保留 `build/dependencies`。`configs/_vendor/` 是从 XTouchCompactDev 原样复制的清单校验器（MIT，来源见其中的 `UPSTREAM.json`），不需要 FreeCM 检出，Swift 目标不使用它。无界面校验：`python3 -B configs/validate_repo_commands.py`。
 
 ## 离线适配器
 
@@ -80,6 +84,18 @@ swift test --scratch-path build/swiftpm
 - `transition` 连接或断开都换 epoch、清空观察，不产生输出。epoch 由调用方提供。
 
 这里没有 HTTP 传输、凭据和进程入口。两个现有宿主各有一套，按工作区计划要先合并再复用，One 不再复制第三套。
+
+## 面板应用
+
+`XTouchOneApp` 按设备正面的布局画出面板，右侧是连接、显示测试、电机召回和报文日志。
+
+- **模拟设备**（启动时的来源）：在面板上点按键、拖推子、上下拖编码器、绕圈拖拨轮，都会经文档模型产生设备字节，再走会话解码。“演示联动”打开时，按键切换自己的灯，编码器带灯环，推子带电平表和 LCD，拨轮带数码管计数。这些显示全部走正常的显示路径。按键上右键可以单独设置灯的状态。
+- **实体端点**：选择输入端点后连接，连接本身不发送。缺省只监听，面板显示设备报告的按键、推子位置和触摸；推子位置未知时画虚线推子帽。“允许向设备写显示”和“允许电机召回”是两个单独的开关，缺省都关。面板上画的灯和显示是已被传输接受的发送内容，不是设备实际显示。实体来源下面板上的点击不产生任何输入。
+- 改来源、模式、通道或任一开关都会新建会话，之前的排队显示和观察不保留。
+- 按键上的小数字是地址。地址与面板标签的对应（`XTouchOnePanelLayout`）和数码管的段位顺序都是暂定的，按面板顺序排，等实机采样后改成实际值。
+- `XTouchOneApp --snapshot <png> [--sample]` 只渲染一张面板图后退出，不开窗口。
+
+实体来源的显示速率用了一个保守的占位值（每秒 50 条），不是经过验证的设备预算。
 
 ## 命令行
 

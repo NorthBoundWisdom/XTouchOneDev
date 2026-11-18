@@ -11,7 +11,7 @@ import setup_local_project
 
 ROOT = Path(__file__).resolve().parents[1]
 # The managed dependency checkouts under build/dependencies are never removed here.
-CLEAN_TARGETS = ("configured.json", "swiftpm")
+CLEAN_TARGETS = ("configured.json", "swiftpm", "app")
 
 
 def clean_build(dry_run: bool) -> None:

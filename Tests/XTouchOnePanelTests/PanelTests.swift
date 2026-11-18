@@ -13,12 +13,16 @@ private func console(_ link: XTouchOneConsole.Link = .mock, mode: XTouchOneMIDIM
 private let route = try! XTouchOneRoute(inputID: "11", outputID: "22", transportOrigin: .physicalUSB)
 
 struct PanelTests {
-    @Test func theLayoutCoversEveryDocumentedAddressOnce() {
+    @Test func theLayoutFollowsTheOverlayTemplateAddresses() {
         let keys = XTouchOnePanelLayout.keys
-        #expect(keys.map(\.address) == Array(0...34) && Set(keys.map(\.id)).count == 35)
+        #expect(keys.map(\.address).sorted() == Array(0...34) && Set(keys.map(\.id)).count == 35)
         #expect(XTouchOnePanelGroup.allCases.map { XTouchOnePanelLayout.keys(in: $0).count } == [6, 6, 7, 5, 4, 5, 1, 1])
-        #expect(XTouchOnePanelLayout.key(at: 34)?.group == .encoder && XTouchOnePanelLayout.key(at: 35) == nil)
-        #expect(XTouchOnePanelLayout.addressesAreProvisional)
+        let labels = Dictionary(uniqueKeysWithValues: keys.map { ($0.address, $0.label) })
+        #expect(labels[0] == "ENCODER PUSH" && labels[1] == "BPM/TIME" && labels[6] == "REC" && labels[7] == "F1")
+        #expect(labels[13] == "MARKER" && labels[19] == "SOLO" && labels[20] == "REW" && labels[24] == "RECORD")
+        #expect(labels[25] == "BANK <" && labels[28] == "CH >" && labels[29] == "SCRUB")
+        #expect(labels[30] == "UP" && labels[31] == "LEFT" && labels[32] == "ZOOM" && labels[33] == "RIGHT" && labels[34] == "DOWN")
+        #expect(XTouchOnePanelLayout.key(at: 35) == nil)
     }
 
     @Test func segmentTextFillsTheAssignmentAndCounterFields() {

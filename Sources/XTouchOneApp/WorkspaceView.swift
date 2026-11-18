@@ -128,7 +128,7 @@ private struct LightListView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 4) {
-                Text("每个按键的灯：熄灭、点亮、闪烁。地址与面板标签的对应是暂定的，等实机采样确认。")
+                Text("每个按键的灯：熄灭、点亮、闪烁。地址与面板按键的对应来自官方贴纸模板，尚未在实机上确认。")
                     .font(.caption).foregroundStyle(.secondary).padding(.bottom, 4)
                 ForEach(XTouchOnePanelLayout.keys) { key in
                     let state = model.console.shown.buttonLEDs[key.address] ?? .off

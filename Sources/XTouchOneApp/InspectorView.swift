@@ -90,7 +90,7 @@ struct ControlInspectorView: View {
                     TextField("计数", text: $model.counter)
                 }
                 Button("写入数码管") { model.showSegments() }.accessibilityIdentifier("inspector.writeSegments")
-                Text("左边两位是分配区，右边十位是计数区。段位顺序是应用自己的约定，等实机确认。")
+                Text("左边两位是分配区，右边十位是计数区。段位顺序按 MIDI 模式文档：bit 0 是 a 段，bit 6 是 g 段。")
                     .font(.caption2).foregroundStyle(.secondary)
             }
             .panelStyle()
@@ -200,7 +200,7 @@ struct ControlInspectorView: View {
     @ViewBuilder
     private func notes(_ selection: PanelSelection) -> some View {
         if case .key = selection {
-            Label("这个地址对应哪个面板按键是暂定的：文档只列出地址 0–34，没有给出与面板标签的对应。", systemImage: "info.circle")
+            Label("地址与面板按键的对应来自 Behringer 的贴纸模板（MIDI/REL、CC/REL 页），尚未在实机上确认。", systemImage: "info.circle")
                 .font(.caption).foregroundStyle(.secondary).panelStyle()
         }
     }

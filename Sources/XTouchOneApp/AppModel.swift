@@ -62,7 +62,7 @@ final class AppModel {
     var lcdLower = "36R"
     var lcdColor = XTouchOneLCDColor.blue
     var assignment = "Pn"
-    var counter = "42 2 1 1"
+    var counter = " 42 2 1  1"
 
     @ObservationIgnored private var input: XTouchOneMIDIInput?
     @ObservationIgnored private var output: XTouchOneMIDIOutput?
@@ -214,7 +214,7 @@ final class AppModel {
     /// A fixed scene for screenshots.
     func loadSampleScene() {
         demoLinks = false
-        for (address, state) in [(0, XTouchOneButtonLED.on), (2, .on), (9, .on), (15, .on), (32, .on), (33, .on)] {
+        for (address, state) in [(1, XTouchOneButtonLED.on), (3, .on), (10, .on), (16, .on), (32, .on), (29, .on)] {
             show(.buttonLED(XTouchOneButton(rawValue: UInt8(address))!, state))
         }
         show(.encoderRing(70))

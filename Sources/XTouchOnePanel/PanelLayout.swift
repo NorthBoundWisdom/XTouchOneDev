@@ -15,40 +15,38 @@ public struct XTouchOnePanelKey: Identifiable, Equatable, Sendable {
     public var button: XTouchOneButton { XTouchOneButton(rawValue: address)! }
 }
 
-/// Where each panel key sits and which documented address the app gives it.
-/// The documentation lists addresses 0–34 without tying them to panel labels, so this assignment
-/// follows panel order and is a placeholder until the arrival sampling records the real one.
+/// Where each panel key sits and its documented address.
+/// The addresses follow Behringer's overlay template sheets (MIDI/REL and CC/REL pages), which print the
+/// note or controller number beside every key. They are documentation, not yet confirmed on a device.
 public enum XTouchOnePanelLayout {
-    public static let addressesAreProvisional = true
-
     public static let keys: [XTouchOnePanelKey] = {
-        let rows: [(XTouchOnePanelGroup, XTouchOnePanelLight, [String])] = [
-            (.channel, .amber, ["BPM/TIME", "MASTER", "SELECT", "MUTE", "SOLO", "REC"]),
-            (.function, .amber, ["F1", "F2", "F3", "F4", "F5", "F6"]),
-            (.transportModes, .red, ["MARKER", "NUDGE", "CYCLE", "DROP", "REPLACE", "CLICK", "SOLO"]),
-            (.transport, .white, ["REW", "FWD", "STOP", "PLAY", "RECORD"]),
-            (.bank, .white, ["BANK <", "BANK >", "CH <", "CH >"]),
-            (.navigation, .blue, ["UP", "DOWN", "LEFT", "RIGHT", "ZOOM"]),
-            (.scrub, .red, ["SCRUB"]),
-            (.encoder, .white, ["ENCODER PUSH"]),
+        // The encoder push is address 0; the rest run left to right, top to bottom.
+        let rows: [(XTouchOnePanelGroup, XTouchOnePanelLight, [(String, UInt8)])] = [
+            (.encoder, .white, [("ENCODER PUSH", 0)]),
+            (.channel, .amber, [("BPM/TIME", 1), ("MASTER", 2), ("SELECT", 3), ("MUTE", 4), ("SOLO", 5), ("REC", 6)]),
+            (.function, .amber, [("F1", 7), ("F2", 8), ("F3", 9), ("F4", 10), ("F5", 11), ("F6", 12)]),
+            (.transportModes, .amber, [("MARKER", 13), ("NUDGE", 14), ("CYCLE", 15), ("DROP", 16), ("REPLACE", 17),
+                                       ("CLICK", 18), ("SOLO", 19)]),
+            (.transport, .white, [("REW", 20), ("FWD", 21), ("STOP", 22), ("PLAY", 23), ("RECORD", 24)]),
+            (.bank, .white, [("BANK <", 25), ("BANK >", 26), ("CH <", 27), ("CH >", 28)]),
+            (.scrub, .red, [("SCRUB", 29)]),
+            (.navigation, .blue, [("UP", 30), ("LEFT", 31), ("ZOOM", 32), ("RIGHT", 33), ("DOWN", 34)]),
         ]
-        var keys: [XTouchOnePanelKey] = []
-        for (group, light, labels) in rows {
-            for label in labels {
-                let light: XTouchOnePanelLight = label == "SELECT" ? .green : label == "REC" || label == "RECORD" ? .red : light
-                keys.append(.init(id: "\(group.rawValue).\(label)", label: label, group: group, light: light,
-                                  address: UInt8(keys.count)))
+        let special: [String: XTouchOnePanelLight] = ["SELECT": .green, "REC": .red, "RECORD": .red, "DROP": .red,
+                                                      "PLAY": .green, "MUTE": .red]
+        return rows.flatMap { group, light, entries in
+            entries.map { label, address in
+                XTouchOnePanelKey(id: "\(group.rawValue).\(label)", label: label, group: group,
+                                  light: special[label] ?? light, address: address)
             }
         }
-        return keys
     }()
 
     public static func keys(in group: XTouchOnePanelGroup) -> [XTouchOnePanelKey] { keys.filter { $0.group == group } }
     public static func key(at address: UInt8) -> XTouchOnePanelKey? { keys.first { $0.address == address } }
 }
 
-/// Seven-segment glyphs for the app's own rendering and test patterns: bit 0 is segment a, bit 6 is g.
-/// The documentation does not settle the bit order, so this is the app's convention until the device confirms it.
+/// Seven-segment glyphs: bit 0 is segment a through bit 6 for segment g, as the MIDI mode document states.
 public enum XTouchOneSegmentFont {
     public static let digitCount = 12
     public static let assignmentDigits = 2

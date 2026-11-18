@@ -145,10 +145,14 @@ struct EndToEndTests {
 
     @Test func theModelRecordsAMotorTargetAndRejectsOtherTraffic() {
         var device = XTouchOneSimulatedDevice(mode: .midi, channel: 1)
-        let rejected: [[UInt8]] = [[0x91, 0, 127], [0x90, 35, 127], [0x90, 0, 1], [0xB0, 0, 127], [0xB0, 81, 1],
+        let rejected: [[UInt8]] = [[0x91, 0, 127], [0x90, 35, 127], [0xB0, 0, 127], [0xB0, 81, 1],
                                    [0xF0, 0, 0x20, 0x32, 0x41, 0x4C, 0, 0, 0xF7], [0xF0, 0x7E, 0x7F, 6, 1, 0xF7]]
         for message in [[0xB0, 70, 64]] + rejected { device.receive(message) }
         #expect(device.faderTargets == [64] && device.ignored == rejected && device.buttonLEDs.isEmpty)
+        for (value, state) in [(0, XTouchOneButtonLED.off), (63, .off), (64, .flash), (65, .on), (127, .on)] {
+            device.receive([0x90, 9, UInt8(value)])
+            #expect(device.buttonLEDs[9] == state, "documented range for velocity \(value)")
+        }
     }
 }
 

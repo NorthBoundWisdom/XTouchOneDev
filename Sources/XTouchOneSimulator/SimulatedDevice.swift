@@ -77,8 +77,9 @@ public struct XTouchOneSimulatedDevice: Equatable, Sendable {
             return
         }
         let status = message[0] & 0xF0, address = message[1], value = message[2]
-        if status == (usesNotes ? 0x90 : 0xB0), address <= 34, let state = XTouchOneButtonLED(rawValue: value) {
-            buttonLEDs[address] = state
+        if status == (usesNotes ? 0x90 : 0xB0), address <= 34 {
+            // Documented ranges: 0–63 off, 64 flash, 65–127 on.
+            buttonLEDs[address] = value < 64 ? .off : value == 64 ? .flash : .on
         } else if status == 0xB0, address == 70 {
             faderTargets.append(value)
         } else if status == 0xB0, address == 80 {

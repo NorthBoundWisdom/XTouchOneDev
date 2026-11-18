@@ -6,7 +6,7 @@ extension XTouchOneMIDIProfile {
     public func decodeSimulatedInput(_ message: [UInt8], generation: UInt64, at: Double,
                                      mappingRevision: String? = nil) throws -> DeviceInputEvent? {
         guard let input = decodeInput(message) else { return nil }
-        let context = try DeviceContext(id: "xtouch-one.\(mode.rawValue).ch\(channel)",
+        let context = try DeviceContext(id: contextID,
                                         generation: String(generation), mappingRevision: mappingRevision)
         let endpoint = try EndpointProvenance(endpointID: nil, deviceID: nil,
                                               connectionGeneration: generation, transportOrigin: .unknown)
@@ -14,7 +14,8 @@ extension XTouchOneMIDIProfile {
                                     context: context, endpoint: endpoint, source: .simulation, at: at)
     }
 
-    private func decodeInput(_ message: [UInt8]) -> (id: String, kind: InputKind, value: DeviceValue)? {
+    /// Device facts only. Callers attach context, endpoint, source and time.
+    func decodeInput(_ message: [UInt8]) -> (id: String, kind: InputKind, value: DeviceValue)? {
         guard message.count == 3, message[0] & 0x0F == channelNibble,
               message[1] < 0x80, message[2] < 0x80 else { return nil }
         let status = message[0] & 0xF0

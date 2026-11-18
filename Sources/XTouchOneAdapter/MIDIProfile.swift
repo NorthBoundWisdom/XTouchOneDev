@@ -38,6 +38,8 @@ public enum XTouchOneMIDIError: Error, Equatable, Sendable {
     case invalidDataByte
     case invalidLCDLine
     case invalidSegmentDisplay
+    case invalidRoute
+    case unknownSend
 }
 
 enum Address {
@@ -64,6 +66,8 @@ public struct XTouchOneMIDIProfile: Equatable, Sendable {
     public let mode: XTouchOneMIDIMode
     public let channel: UInt8
     var channelNibble: UInt8 { channel - 1 }
+    /// Mode and channel select the interpretation, so both belong to the context identity.
+    public var contextID: String { "xtouch-one.\(mode.rawValue).ch\(channel)" }
 
     public init(mode: XTouchOneMIDIMode, channel: UInt8) throws {
         guard (1...16).contains(channel) else { throw XTouchOneMIDIError.invalidChannel }

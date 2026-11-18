@@ -27,6 +27,11 @@ public struct XTouchOneRoute: Equatable, Sendable {
     }
 }
 
+/// Whether the session may ever ask the fader motor to move. The default never does.
+public enum XTouchOneMechanismPolicy: String, Equatable, Sendable {
+    case disabled, localRecall
+}
+
 public enum XTouchOneIgnoredInput: Equatable, Sendable {
     case disconnected, unrecognized
 }
@@ -61,6 +66,7 @@ struct RouteIdentity: Equatable, Sendable {
 public struct XTouchOneSession: Sendable {
     public let source: DeviceSource
     public let outputPolicy: XTouchOneOutputPolicy
+    public let mechanismPolicy: XTouchOneMechanismPolicy
     public let mappingRevision: String?
     public private(set) var profile: XTouchOneMIDIProfile
     public private(set) var route: XTouchOneRoute?
@@ -68,7 +74,7 @@ public struct XTouchOneSession: Sendable {
     public private(set) var scope: ContextScope
     private var connection: ConnectionState<RouteIdentity>
     private var inputEndpoint: EndpointProvenance?
-    private var observations: [XTouchOneObservedFact: DeviceObservation] = [:]
+    var observations: [XTouchOneObservedFact: DeviceObservation] = [:]
 
     var grants: Set<XTouchOneOrigin> = []
     var queue: FeedbackQueue<String, XTouchOneDisplayPlan>
@@ -83,9 +89,11 @@ public struct XTouchOneSession: Sendable {
 
     /// `displayRate` has no default because the hardware budget is not yet qualified.
     public init(source: DeviceSource, profile: XTouchOneMIDIProfile, displayRate: FeedbackQueueRate,
-                outputPolicy: XTouchOneOutputPolicy = .observe, mappingRevision: String? = nil) throws {
+                outputPolicy: XTouchOneOutputPolicy = .observe,
+                mechanismPolicy: XTouchOneMechanismPolicy = .disabled, mappingRevision: String? = nil) throws {
         self.source = source
         self.outputPolicy = outputPolicy
+        self.mechanismPolicy = mechanismPolicy
         self.mappingRevision = mappingRevision
         self.profile = profile
         let identity = RouteIdentity(profile: profile, deviceID: nil, transportOrigin: nil)

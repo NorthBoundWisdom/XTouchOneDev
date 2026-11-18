@@ -75,7 +75,7 @@ public struct XTouchOneMIDIProfile: Equatable, Sendable {
         self.channel = channel
     }
 
-    /// The subset implemented by the offline adapter, including the available display effects.
+    /// The subset implemented by the offline adapter: inputs, display effects and the fader's motor target.
     public static func capabilities() throws -> DeviceCapabilities {
         let modes = try XTouchOneMIDIMode.allCases.map { mode in
             let buttonInputs = [InputCapability(kind: .press, valueKind: .flag),
@@ -87,7 +87,8 @@ public struct XTouchOneMIDIProfile: Equatable, Sendable {
                 InputCapability(kind: .absolute, valueKind: .number),
                 InputCapability(kind: .contactBegan, valueKind: .flag),
                 InputCapability(kind: .contactEnded, valueKind: .flag),
-            ], displays: [], effects: [])
+            ], displays: [], effects: [EffectCapability(kind: "motor-target", classification: .mechanism,
+                                                        sideEffects: [])])
             let jog = try ElementCapability(elementID: Element.jog, inputs: [
                 InputCapability(kind: .relative, valueKind: .number),
             ], displays: [], effects: [])

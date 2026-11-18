@@ -58,12 +58,14 @@ struct DisplayTests {
             let elements = Dictionary(uniqueKeysWithValues: mode.elements.map { ($0.elementID, $0) })
             #expect(elements.count == 42)
             #expect(elements["fader"]?.inputs.map(\.kind) == [.absolute, .contactBegan, .contactEnded])
-            #expect(elements["fader"]?.effects.isEmpty == true)
+            #expect(elements["fader"]?.effects.map(\.requiredDirections) == [[.mechanism]])
+            #expect(elements["fader"]?.displays.isEmpty == true)
             let encoderKind = try #require(elements["encoder.turn"]?.inputs.first?.kind)
             #expect(encoderKind == (mode.id.hasSuffix("Rel") ? .relative : .absolute))
-            let outputIDs = Set(mode.elements.filter { !$0.effects.isEmpty }.map(\.elementID))
+            let outputIDs = Set(mode.elements.filter { !$0.displays.isEmpty }.map(\.elementID))
             #expect(outputIDs == Set((0...34).map { "button.\($0)" } + ["encoder.turn", "meter", "lcd", "segment-display"]))
-            #expect(mode.elements.flatMap(\.effects).allSatisfy { $0.requiredDirections == [.display] })
+            #expect(mode.elements.filter { $0.elementID != "fader" }.flatMap(\.effects)
+                .allSatisfy { $0.requiredDirections == [.display] })
         }
     }
 }

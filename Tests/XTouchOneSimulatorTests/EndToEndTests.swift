@@ -128,6 +128,21 @@ struct EndToEndTests {
         #expect(bench.device.encoderRing == nil && bench.device.meter == nil)
     }
 
+    @Test func onlyALocalRecallAfterAReleaseReachesTheMotor() throws {
+        var device = XTouchOneSimulatedDevice(mode: .midiRelative, channel: 9)
+        var session = try XTouchOneSession(source: .simulation, profile: XTouchOneMIDIProfile(mode: .midiRelative, channel: 9),
+                                           displayRate: .unlimited, outputPolicy: .write, mechanismPolicy: .localRecall)
+        try session.attach(XTouchOneRoute(inputID: "sim-in", outputID: "sim-out", transportOrigin: .localVirtual))
+        #expect(try session.recallFader(to: 64) == .refused(.contactUnknown))
+        _ = try session.receive(device.setFaderTouched(true), at: 0)
+        _ = try session.receive(device.setFaderTouched(false), at: 1)
+        guard case .send(let send) = try session.recallFader(to: 64) else { Issue.record("expected a send"); return }
+        #expect(session.preflight(send) == .permitted)
+        device.receive(send.bytes)
+        _ = try session.complete(send, result: .accepted, at: 2)
+        #expect(device.faderTargets == [64] && device.ignored.isEmpty)
+    }
+
     @Test func theModelRecordsAMotorTargetAndRejectsOtherTraffic() {
         var device = XTouchOneSimulatedDevice(mode: .midi, channel: 1)
         let rejected: [[UInt8]] = [[0x91, 0, 127], [0x90, 35, 127], [0x90, 0, 1], [0xB0, 0, 127], [0xB0, 81, 1],

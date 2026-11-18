@@ -9,3 +9,5 @@ __pycache__/
 *.pem
 *.token
 .freecm/
+# Vendor firmware is kept locally only; see docs/vendor/README.md
+/docs/vendor/firmware/

@@ -1,6 +1,6 @@
 # XTouchOneDev
 
-AstroController 的 Behringer X-Touch One 离线设备适配器，尚未连接过实机。Swift 6 library `XTouchOneAdapter` 使用 ControlSurfaceKit 的中性设备合同。协议依据是 [Behringer MIDI Mode Implementation](https://cdn.mediavalet.com/aunsw/musictribe/g9onGOWczEOY5jIl8xEyXw/ORt6XQvz_0Kn62IYtEmkRQ/Original/Document_BE_X-TOUCH-ONE-MIDI-Mode-Implementation.pdf) 和 [Quick Start Guide](https://cdn.mediavalet.com/aunsw/musictribe/vLVIKV3wOkCX1u1NKTU4AA/_6iHaVpROESvWvldLUtf-Q/Original/QSG_BE_0808-AAG_X-TOUCH%20ONE_WW.pdf) 的 MIDI 模式表。
+AstroController 的 Behringer X-Touch One 离线设备适配器，尚未连接过实机。使用 ControlSurfaceKit 的中性设备合同和 SurfacePlugins 的控制合同。协议依据是 [Behringer MIDI Mode Implementation](https://cdn.mediavalet.com/aunsw/musictribe/g9onGOWczEOY5jIl8xEyXw/ORt6XQvz_0Kn62IYtEmkRQ/Original/Document_BE_X-TOUCH-ONE-MIDI-Mode-Implementation.pdf) 和 [Quick Start Guide](https://cdn.mediavalet.com/aunsw/musictribe/vLVIKV3wOkCX1u1NKTU4AA/_6iHaVpROESvWvldLUtf-Q/Original/QSG_BE_0808-AAG_X-TOUCH%20ONE_WW.pdf) 的 MIDI 模式表。
 
 ## 构建与测试
 
@@ -8,10 +8,19 @@ AstroController 的 Behringer X-Touch One 离线设备适配器，尚未连接�
 
 ```sh
 python3 -B configs/control_surface_kit_dependency.py ensure
+python3 -B configs/surface_plugins_dependency.py ensure
 swift test --scratch-path build/swiftpm
 ```
 
-`ensure` 从锁指定的 Git remote 获取完整 SHA，并将干净检出物化到 `build/dependencies/ControlSurfaceKit`。`CONTROL_SURFACE_KIT_SOURCE` 可指定含该提交的本地 Git 仓库作为获取源。修改锁后用 `update` 显式替换原受管检出。
+`ensure` 从锁指定的 Git remote 获取完整 SHA，并将干净检出物化到 `build/dependencies/` 下。`CONTROL_SURFACE_KIT_SOURCE`、`SURFACE_PLUGINS_SOURCE` 可指定含该提交的本地 Git 仓库作为获取源。修改锁后用 `update` 显式替换原受管检出。SurfacePlugins 的锁与 XTouchCompactDev 相同。
+
+| 目标 | 内容 | 平台 |
+|---|---|---|
+| `XTouchOneAdapter` | 编解码、能力声明、分帧、覆盖统计、会话 | macOS、Linux |
+| `XTouchOneSurface` | 接到 SurfacePlugins 控制合同的实体 surface | macOS、Linux |
+| `XTouchOneCapture`、`xtouch-one-review` | 录制文件格式与离线审查 | macOS、Linux |
+| `XTouchOneCoreMIDI`、`xtouch-one-monitor` | 数据包编解码（全平台）、CoreMIDI 端点与监听命令（仅 macOS） | 见左 |
+| `XTouchOneSimulator` | 按文档独立实现的设备模型，仅测试使用 | macOS、Linux |
 
 ## 离线适配器
 
@@ -43,10 +52,37 @@ swift test --scratch-path build/swiftpm
 - `XTouchOneMIDIFramer` 把原始字节流切成完整报文，处理 running status、夹在报文中间的实时字节和 SysEx，并统计无法归属的字节数。
 - `XTouchOneInputCoverage` 统计一段录制覆盖了所选模式的哪些文档输入（共 80 项：每个按钮和脚踏的按下与释放、推子触摸两个边沿与两端位置、编码器和拨轮的两个方向），列出缺项、其他通道上的报文和未识别的报文。
 
+## 实体 surface
+
+`XTouchOneHardwareSurface` 把一个设备会话接到 SurfacePlugins 的 `SurfaceControlSession`，来源为 `hardware`（合同 1.4），形状与 XTouchCompactDev 的 `CompactHardwareSurface` 一致。
+
+- 档案 `xtouch.one.midi.hardware` 有 41 个控件：35 个按钮、脚踏、推子、推子触摸、编码器、拨轮、电平表。所有控件都拒绝远程输入。编码器在相对模式下是 `relative`/`signedDelta`，换模式会换档案、映射修订和 epoch。
+- 输入只来自设备报文，每条报文至多一个实体输入事件。
+- 远程显示只能到按钮灯（`indicator`）、灯环和电平表（`value`）。推子没有反馈种类，LCD 和七段显示没有合同控件，所以远程请求到不了电机，也发不了原始 MIDI。
+- `issueDisplay` 校验并发出一次发送，`completeDisplay` 只在传输接受且仍属于发出时的代次时才记录反馈事件。其余情况不记录并抛 `invalid_transition`。
+- `transition` 连接或断开都换 epoch、清空观察，不产生输出。epoch 由调用方提供。
+
+这里没有 HTTP 传输、凭据和进程入口。两个现有宿主各有一套，按工作区计划要先合并再复用，One 不再复制第三套。
+
+## 命令行
+
+```sh
+swift run --scratch-path build/swiftpm xtouch-one-monitor list
+swift run --scratch-path build/swiftpm xtouch-one-monitor record --input <id> --mode Midi --channel 1 \
+    --source hardware --out capture.jsonl
+swift run --scratch-path build/swiftpm xtouch-one-review --require-complete capture.jsonl
+```
+
+- `list` 列出 CoreMIDI 端点，`record` 只监听一个指定的输入端点。两者都不创建输出端口，不可能发送。`record` 把原始字节、连接事件、代次和时间写成 JSON Lines，结束时打印审查结果，已有文件不覆盖。`--source` 必须显式写明。
+- `show` 向指定输出端点发一条显示报文（按钮灯、灯环、电平表、LCD），走会话的全部门禁。不加 `--write` 只打印字节。它没有电机命令。
+- `xtouch-one-review` 离线读取录制文件：覆盖缺项、其他通道、未识别报文、每个代次最先到达的报文、序号与时间异常、输出方向里的电机目标数。加 `--require-complete` 时不完整则退出码为 1。
+
+CoreMIDI 回环测试只使用测试自己创建的虚拟端点，缺省跳过，用 `XTOUCH_ONE_COREMIDI_TESTS=1` 开启。
+
 ## 模拟设备
 
 `XTouchOneSimulator` 库里的 `XTouchOneSimulatedDevice` 按同一份文档独立实现设备一侧：操作者动作产生设备会发出的字节，收到的显示报文更新按钮灯、灯环、电平表、LCD 和七段显示的状态，收到的 CC 70 单独记录为电机目标。它与适配器的编解码不共享常量，端到端测试用它核对四种模式下 81 个输入事件和全部显示输出，并断言电机目标始终为空。它只代表文档，不代表实机行为，生产目标不得依赖它。
 
 ## 到货后采样
 
-先在用户在场时记录固件版本、面板模式和 USB MIDI 端点身份，从接收侧确认实际通道、逐键地址（含编码器按压）、编码器与拨轮双向值、脚踏、推子边沿和位置，用 `XTouchOneInputCoverage` 核对缺项。分别记录初连及断开重连时的静默和报文顺序，保留来源、代次、时间和原始字节。有差异时先补离线用例。显示渲染、传输吞吐和电机行为各需独立的在场证据。
+先在用户在场时记录固件版本、面板模式和 USB MIDI 端点身份，从接收侧确认实际通道、逐键地址（含编码器按压）、编码器与拨轮双向值、脚踏、推子边沿和位置，用 `xtouch-one-monitor record` 录制、`xtouch-one-review` 核对缺项。分别记录初连及断开重连时的静默和报文顺序，保留来源、代次、时间和原始字节。有差异时先补离线用例。显示渲染、传输吞吐和电机行为各需独立的在场证据。

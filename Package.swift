@@ -3,17 +3,22 @@ import Foundation
 import PackageDescription
 
 let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-let verify = Process()
-verify.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-verify.arguments = ["python3", "-B", root.appendingPathComponent("configs/control_surface_kit_dependency.py").path, "verify"]
-verify.currentDirectoryURL = root
-verify.standardOutput = FileHandle.nullDevice
-try verify.run()
-verify.waitUntilExit()
-guard verify.terminationStatus == 0 else {
-    fatalError("Run python3 -B configs/control_surface_kit_dependency.py ensure before building.")
+for script in ["control_surface_kit_dependency.py", "surface_plugins_dependency.py"] {
+    let verify = Process()
+    verify.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    verify.arguments = ["python3", "-B", root.appendingPathComponent("configs/" + script).path, "verify"]
+    verify.currentDirectoryURL = root
+    verify.standardOutput = FileHandle.nullDevice
+    try verify.run()
+    verify.waitUntilExit()
+    guard verify.terminationStatus == 0 else {
+        fatalError("Run python3 -B configs/\(script) ensure before building.")
+    }
 }
 
+let contracts: [Target.Dependency] = ["SurfaceControlContracts", "SurfacePluginContracts"].map {
+    .product(name: $0, package: "SurfacePlugins")
+}
 let kit: [Target.Dependency] = [
     "SurfaceDeviceContracts", "SurfaceBindingContext", "SurfaceConnectionState", "SurfaceFeedbackPlanning",
 ].map { .product(name: $0, package: "ControlSurfaceKit") }
@@ -24,6 +29,7 @@ let package = Package(
     products: [
         .library(name: "XTouchOneAdapter", targets: ["XTouchOneAdapter"]),
         // Offline stand-in for the device. No production target may depend on it.
+        .library(name: "XTouchOneSurface", targets: ["XTouchOneSurface"]),
         .library(name: "XTouchOneCapture", targets: ["XTouchOneCapture"]),
         // The endpoint classes exist only where CoreMIDI does; the packet codec builds everywhere.
         .library(name: "XTouchOneCoreMIDI", targets: ["XTouchOneCoreMIDI"]),
@@ -31,12 +37,18 @@ let package = Package(
         .executable(name: "xtouch-one-monitor", targets: ["xtouch-one-monitor"]),
         .library(name: "XTouchOneSimulator", targets: ["XTouchOneSimulator"]),
     ],
-    dependencies: [.package(path: "build/dependencies/ControlSurfaceKit")],
+    dependencies: [
+        .package(path: "build/dependencies/ControlSurfaceKit"),
+        .package(path: "build/dependencies/SurfacePlugins"),
+    ],
     targets: [
         .target(name: "XTouchOneAdapter", dependencies: kit),
         .testTarget(name: "XTouchOneAdapterTests", dependencies: ["XTouchOneAdapter"] + kit),
         .target(name: "XTouchOneSimulator", dependencies: ["XTouchOneAdapter"]),
         .target(name: "XTouchOneCapture", dependencies: ["XTouchOneAdapter"]),
+        .target(name: "XTouchOneSurface", dependencies: ["XTouchOneAdapter"] + kit + contracts),
+        .testTarget(name: "XTouchOneSurfaceTests",
+                    dependencies: ["XTouchOneAdapter", "XTouchOneSurface", "XTouchOneSimulator"] + kit + contracts),
         .target(name: "XTouchOneCoreMIDI"),
         .executableTarget(name: "xtouch-one-monitor",
                           dependencies: ["XTouchOneAdapter", "XTouchOneCapture", "XTouchOneCoreMIDI"] + kit),

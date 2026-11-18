@@ -22,6 +22,23 @@ swift test --scratch-path build/swiftpm
 | `XTouchOneCoreMIDI`、`xtouch-one-monitor` | 数据包编解码（全平台）、CoreMIDI 端点与监听命令（仅 macOS） | 见左 |
 | `XTouchOneSimulator` | 按文档独立实现的设备模型，仅测试使用 | macOS、Linux |
 
+## FreeCM
+
+用 VS Code 打开仓库根目录，安装推荐的 `ethan-kang.freecm` 扩展，打开 **FreeCM: Show Workflow Panel**。先执行一次 **Config**，之后就可以直接 Build、Run、Test。命令清单是 `configs/freecm.commands.jsonc`（version 2）。
+
+| 动作 | 变体 | 命令 | 结果 |
+|---|---|---|---|
+| Config | Local macOS Swift / Linux Swift | `python3 -B configs/setup_local_project.py` | 物化两个锁定的依赖，校验命令清单和 Swift 包，成功后写 `build/configured.json` |
+| Build | Debug（缺省）、Release | `python3 -B configs/workflow.py build` | 全部库和命令行，产物在 `build/swiftpm/` |
+| Run | List MIDI Endpoints（macOS 缺省） | `python3 -B configs/workflow.py run xtouch-one-monitor list` | 只读地列出 CoreMIDI 端点，不发送 |
+| Run | Monitor Usage、Review Usage | `python3 -B configs/workflow.py run --usage <命令>` | 打印用法。`record` 和 `show` 需要端点 id，从终端运行 |
+| Test | Swift Tests（缺省） | `python3 -B configs/workflow.py test` | 与硬件无关的全部测试，不打开任何 MIDI 端点 |
+| Test | CoreMIDI Loopback（仅 macOS） | `python3 -B configs/workflow.py test --coremidi-loopback` | 另外运行回环测试，只用测试自建的虚拟端点 |
+
+没有 Package 动作，因为还没有交付件。面板里没有任何会向设备发送的命令。配置输入变化后面板显示 **Needs Config**，重新执行 Config 即可。
+
+`configs/source_root_workflow.py` 提供插件的初始化与更新入口（`--initrepo`、`--update`，都执行同一个配置），`--initlock` 报告两份锁文件，`--cleanbuild [--dry-run]` 只删除 `build/configured.json` 和 `build/swiftpm`，保留 `build/dependencies`。`configs/_vendor/` 是从 XTouchCompactDev 原样复制的清单校验器（MIT，来源见其中的 `UPSTREAM.json`），不需要 FreeCM 检出，Swift 目标不使用它。无界面校验：`python3 -B configs/validate_repo_commands.py`。
+
 ## 离线适配器
 
 - 调用方显式选择 `Midi`、`MidiRel`、`CChg` 或 `CChgRel`，并指定 1–16 的 MIDI 通道。模式和通道写进输入上下文。

@@ -1,0 +1,94 @@
+{
+  "version": 2,
+  "commands": {
+    "config": [
+      {
+        "id": "local-swift",
+        "label": "Local macOS Swift",
+        "description": "Acquire the locked dependencies and validate the Swift package and these commands",
+        "command": "python3",
+        "args": ["-B", "configs/setup_local_project.py"],
+        "platforms": ["darwin"],
+        "default": true,
+        "defaults": {"build": "debug", "run": "monitor-list", "test": "unit"},
+        "readiness": {
+          "inputs": [
+            "Package.swift", "configs/setup_local_project.py", "configs/workflow.py",
+            "configs/managed_git_dependency.py", "configs/control_surface_kit_dependency.py",
+            "configs/control_surface_kit.lock.json", "configs/surface_plugins_dependency.py",
+            "configs/surface_plugins.lock.json", "configs/validate_repo_commands.py",
+            "configs/_vendor/freecm/repo_commands.py", "configs/_vendor/freecm/jsonc.py"
+          ],
+          "outputs": ["build/configured.json"]
+        }
+      },
+      {
+        "id": "linux-swift",
+        "label": "Linux Swift",
+        "description": "Configure the portable libraries, the review command and their tests",
+        "command": "python3",
+        "args": ["-B", "configs/setup_local_project.py"],
+        "platforms": ["linux"],
+        "default": true,
+        "defaults": {"build": "debug", "run": "review-help", "test": "unit"},
+        "readiness": {
+          "inputs": [
+            "Package.swift", "configs/setup_local_project.py", "configs/workflow.py",
+            "configs/managed_git_dependency.py", "configs/control_surface_kit_dependency.py",
+            "configs/control_surface_kit.lock.json", "configs/surface_plugins_dependency.py",
+            "configs/surface_plugins.lock.json", "configs/validate_repo_commands.py",
+            "configs/_vendor/freecm/repo_commands.py", "configs/_vendor/freecm/jsonc.py"
+          ],
+          "outputs": ["build/configured.json"]
+        }
+      }
+    ],
+    "build": [
+      {
+        "id": "debug", "label": "Debug",
+        "description": "Build every library and command into build/swiftpm",
+        "command": "python3", "args": ["-B", "configs/workflow.py", "build"],
+        "configurations": ["local-swift", "linux-swift"]
+      },
+      {
+        "id": "release", "label": "Release",
+        "command": "python3", "args": ["-B", "configs/workflow.py", "build", "--configuration", "release"],
+        "configurations": ["local-swift", "linux-swift"]
+      }
+    ],
+    "run": [
+      {
+        "id": "monitor-list", "label": "List MIDI Endpoints",
+        "description": "Build and run `xtouch-one-monitor list`. It reads CoreMIDI's endpoint list and sends nothing",
+        "command": "python3", "args": ["-B", "configs/workflow.py", "run", "xtouch-one-monitor", "list"],
+        "configurations": ["local-swift"]
+      },
+      {
+        "id": "monitor-help", "label": "Monitor Usage",
+        "description": "Print the record and show command lines. Recording needs an endpoint id, so run it from a terminal",
+        "command": "python3", "args": ["-B", "configs/workflow.py", "run", "--usage", "xtouch-one-monitor"],
+        "configurations": ["local-swift"]
+      },
+      {
+        "id": "review-help", "label": "Review Usage",
+        "description": "Print the offline capture review command line",
+        "command": "python3", "args": ["-B", "configs/workflow.py", "run", "--usage", "xtouch-one-review"],
+        "configurations": ["local-swift", "linux-swift"]
+      }
+    ],
+    "test": [
+      {
+        "id": "unit", "label": "Swift Tests",
+        "description": "All hardware-independent tests. No MIDI endpoint is opened",
+        "command": "python3", "args": ["-B", "configs/workflow.py", "test"],
+        "configurations": ["local-swift", "linux-swift"]
+      },
+      {
+        "id": "coremidi-loopback", "label": "CoreMIDI Loopback",
+        "description": "Also run the loopback test over virtual endpoints the test itself creates. It opens no other endpoint",
+        "command": "python3", "args": ["-B", "configs/workflow.py", "test", "--coremidi-loopback"],
+        "configurations": ["local-swift"]
+      }
+    ]
+  }
+}

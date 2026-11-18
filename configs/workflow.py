@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRATCH = ["--scratch-path", "build/swiftpm"]
 PRODUCTS = ("xtouch-one-monitor", "xtouch-one-review")
 APP = "XTouchOneApp"
+APP_ICON = "AppIcon.icns"
 BUNDLE_ID = "com.northboundwisdom.xtouchone"
 
 
@@ -29,10 +30,14 @@ def bundle_app() -> Path:
         raise ValueError("Refusing a symlinked build path.")
     shutil.rmtree(app, ignore_errors=True)
     (app / "Contents" / "MacOS").mkdir(parents=True)
+    resources = app / "Contents" / "Resources"
+    resources.mkdir()
     shutil.copy2(binary, app / "Contents" / "MacOS" / APP)
+    shutil.copy2(ROOT / "assets" / APP_ICON, resources / APP_ICON)
     with open(app / "Contents" / "Info.plist", "wb") as handle:
         plistlib.dump({
             "CFBundleName": "X-Touch One", "CFBundleExecutable": APP, "CFBundleIdentifier": BUNDLE_ID,
+            "CFBundleIconFile": APP_ICON,
             "CFBundlePackageType": "APPL", "CFBundleShortVersionString": "0.1.0", "CFBundleVersion": "1",
             "LSMinimumSystemVersion": "14.0", "NSHighResolutionCapable": True,
         }, handle)

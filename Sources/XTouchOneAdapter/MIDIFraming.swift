@@ -9,6 +9,9 @@ public struct XTouchOneMIDIFramer: Equatable, Sendable {
     /// Bytes that could not be attributed to a complete message, for capture review.
     public private(set) var discardedByteCount = 0
 
+    /// Bytes of a message that has not finished yet.
+    public var pendingByteCount: Int { pending.count }
+
     public init() {}
 
     /// Forgets partial data, as required when the connection changes.

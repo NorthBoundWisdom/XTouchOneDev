@@ -21,11 +21,17 @@ let kit: [Target.Dependency] = [
 let package = Package(
     name: "XTouchOneDev",
     platforms: [.macOS(.v14)],
-    products: [.library(name: "XTouchOneAdapter", targets: ["XTouchOneAdapter"])],
+    products: [
+        .library(name: "XTouchOneAdapter", targets: ["XTouchOneAdapter"]),
+        // Offline stand-in for the device. No production target may depend on it.
+        .library(name: "XTouchOneSimulator", targets: ["XTouchOneSimulator"]),
+    ],
     dependencies: [.package(path: "build/dependencies/ControlSurfaceKit")],
     targets: [
         .target(name: "XTouchOneAdapter", dependencies: kit),
         .testTarget(name: "XTouchOneAdapterTests", dependencies: ["XTouchOneAdapter"] + kit),
+        .target(name: "XTouchOneSimulator", dependencies: ["XTouchOneAdapter"]),
+        .testTarget(name: "XTouchOneSimulatorTests", dependencies: ["XTouchOneAdapter", "XTouchOneSimulator"] + kit),
     ],
     swiftLanguageModes: [.v6]
 )

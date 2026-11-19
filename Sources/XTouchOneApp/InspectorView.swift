@@ -141,7 +141,7 @@ struct ControlInspectorView: View {
             HStack(spacing: 8) {
                 Text("召回目标").font(.caption).foregroundStyle(.secondary)
                 Slider(value: Binding(get: { model.recallTarget }, set: { model.recallTarget = $0.rounded() }), in: 0...127).accessibilityIdentifier("inspector.recallTarget")
-                Button("发送位置") { model.recall() }
+                Button("发送位置") { model.sendFaderPosition() }
                     .disabled(!model.canSendFaderPosition)
                     .accessibilityIdentifier("inspector.sendFaderPosition")
             }
@@ -152,7 +152,7 @@ struct ControlInspectorView: View {
                 .frame(height: 18, alignment: .leading)
                 .opacity(touched == false ? 0 : 1)
                 .accessibilityHidden(touched == false)
-            Text("手动移动实体推子会同步目标。拖动左侧软件推子后松开，或点「发送位置」，都会发送一次。观察值等设备报告后更新。")
+            Text("虚线推子与召回目标同步。点「发送位置」提交，实线显示设备回报的位置。")
                 .font(.caption2).foregroundStyle(.secondary)
         }
         .insetStyle()

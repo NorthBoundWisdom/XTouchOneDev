@@ -46,11 +46,6 @@ enum WorkspaceTab: String, CaseIterable, Identifiable {
 @MainActor
 @Observable
 final class AppModel {
-    struct FaderSendScope: Equatable {
-        let connection: UUID
-        let touchRevision: UInt64
-    }
-
     private(set) var console: XTouchOneConsole
     private(set) var link = XTouchOneConsole.Link.mock
     private(set) var mode = XTouchOneMIDIMode.midi
@@ -93,7 +88,6 @@ final class AppModel {
     @ObservationIgnored private var input: XTouchOneMIDIInput?
     @ObservationIgnored private var output: XTouchOneMIDIOutput?
     @ObservationIgnored private var connectionID: UUID?
-    @ObservationIgnored private var touchRevision: UInt64 = 0
     @ObservationIgnored private var setupObserver: XTouchOneMIDISetupObserver?
     @ObservationIgnored private var lastAutomaticProbe = -Double.infinity
     @ObservationIgnored private let midiAccess: Bool
@@ -137,10 +131,6 @@ final class AppModel {
     var canWriteDisplay: Bool { link == .mock || (allowWrite && isConnected && output != nil) }
     var canSendFaderPosition: Bool {
         canWriteDisplay && (link == .mock || allowRecall) && console.faderTouched == false
-    }
-    var hardwareFaderSendScope: FaderSendScope? {
-        guard link == .hardware, canSendFaderPosition, let connectionID else { return nil }
-        return FaderSendScope(connection: connectionID, touchRevision: touchRevision)
     }
     var demoLinks: Bool {
         get { console.demoLinks }
@@ -309,9 +299,7 @@ final class AppModel {
     private func received(_ message: [UInt8]) {
         guard isConnected else { return }
         let previous = console.workspace.values
-        let wasTouched = console.faderTouched
         attempt { try console.receive(message, at: now) }
-        if console.faderTouched != wasTouched { touchRevision &+= 1 }
         noteInputValues(previous)
         flush()
     }
@@ -356,13 +344,9 @@ final class AppModel {
         flush()
     }
 
-    func recall() {
-        sendFaderPosition(console.faderTarget)
-    }
-
-    func sendFaderPosition(_ target: UInt8) {
+    func sendFaderPosition() {
         guard canSendFaderPosition else { return }
-        console.setFaderTarget(target)
+        let target = console.faderTarget
         attempt { try console.recallFader(to: target, at: now, write: transport) }
     }
 

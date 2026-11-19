@@ -521,12 +521,10 @@ struct JogCell: View {
 }
 
 /// The 100 mm motor fader with its printed dB scale. Dragging reports touch, travel and release,
-/// as a hand on the mock device would. A deliberate hardware drag stages one target to send on release.
+/// as a hand on the mock device would. In hardware mode it edits the same draft as the inspector.
 struct FaderCell: View {
     let model: AppModel
     @State private var dragging = false
-    @State private var dragScope: AppModel.FaderSendScope?
-    @State private var stagedTarget: UInt8?
     private let travel: CGFloat = 330
     private let cap: CGFloat = 52
     /// Printed marks and where they sit along the travel, top to bottom.
@@ -538,14 +536,20 @@ struct FaderCell: View {
     var body: some View {
         let position = model.console.faderPosition
         let touched = model.console.faderTouched == true
-        let preview = dragScope != nil && dragScope == model.hardwareFaderSendScope ? stagedTarget : nil
-        let displayed = preview ?? model.console.faderDisplayPosition
-        let offset = travel * (1 - CGFloat(displayed ?? 0) / 127)
         VStack(spacing: 3) {
             ZStack(alignment: .top) {
                 scale
                 RoundedRectangle(cornerRadius: 2).fill(.black).frame(width: 6, height: travel + cap)
-                capView(known: position != nil && preview == nil, touched: touched).offset(y: offset)
+                if let position {
+                    capView(known: true, touched: touched).offset(y: offset(for: position))
+                }
+                if let target = model.console.faderGhostPosition {
+                    capView(known: false, touched: false)
+                        .offset(y: offset(for: target))
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityIdentifier("fader.ghost")
+                        .accessibilityLabel(model.console.sentFaderTarget == target ? "已发送目标 \(target)" : "召回目标 \(target)")
+                }
             }
             .frame(width: 92, height: travel + cap)
             .contentShape(Rectangle())
@@ -554,25 +558,19 @@ struct FaderCell: View {
                     if !dragging {
                         dragging = true
                         model.selection = .fader
-                        dragScope = model.hardwareFaderSendScope
                         if model.link == .mock { model.act(.touch(true)) }
                     }
                     let fraction = 1 - (drag.location.y - cap / 2) / travel
                     let value = UInt8(max(0, min(127, (fraction * 127).rounded())))
-                    if model.link == .mock, value != model.console.faderPosition { model.act(.fader(value)) }
-                    if let dragScope, model.hardwareFaderSendScope == dragScope, abs(drag.translation.height) >= 2 {
-                        stagedTarget = value
+                    if model.link == .mock {
+                        if value != model.console.faderPosition { model.act(.fader(value)) }
+                    } else if abs(drag.translation.height) >= 2 {
+                        model.recallTarget = Double(value)
                     }
                 }
                 .onEnded { _ in
                     if model.link == .mock { model.act(.touch(false)) }
-                    if let dragScope, let stagedTarget, model.hardwareFaderSendScope == dragScope,
-                       stagedTarget != model.console.faderPosition {
-                        model.sendFaderPosition(stagedTarget)
-                    }
                     dragging = false
-                    dragScope = nil
-                    stagedTarget = nil
                 })
             HStack(spacing: 4) {
                 Image(systemName: "hand.raised.fill").font(.system(size: 8)).foregroundStyle(Theme.touch)
@@ -583,10 +581,12 @@ struct FaderCell: View {
             }
         }
         .overlay { if model.selection == .fader { selectionStroke(true, radius: 8).padding(-3) } }
-        .help(model.link == .mock ? "拖动模拟推子" : "拖动后松手，发送一次目标位置")
+        .help(model.link == .mock ? "拖动模拟推子" : "拖动编辑召回目标，点击「发送位置」提交")
         .accessibilityIdentifier("fader")
         .modifier(ControlMark(model: model, id: "fader"))
     }
+
+    private func offset(for position: UInt8) -> CGFloat { travel * (1 - CGFloat(position) / 127) }
 
     /// Long ticks with numbers on the left of the slot, fine ticks between them on both sides.
     private var scale: some View {

@@ -83,7 +83,10 @@ public struct XTouchOneConsole: Sendable {
         return UInt8(value)
     }
 
-    public var faderDisplayPosition: UInt8? { faderPosition ?? sentFaderTarget }
+    public var faderGhostPosition: UInt8? {
+        guard link == .hardware, faderPosition != faderTarget else { return nil }
+        return faderTarget
+    }
 
     public var faderTouched: Bool? {
         guard case .flag(let value)? = (try? session.observation(of: .faderContact, at: 0))?.value else { return nil }

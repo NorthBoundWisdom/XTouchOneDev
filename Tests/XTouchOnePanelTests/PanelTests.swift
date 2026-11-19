@@ -102,30 +102,35 @@ struct PanelTests {
         #expect(console.faderTarget == 27)
     }
 
-    @Test func acceptedHardwareTargetPositionsTheGhostUntilADeviceReport() throws {
+    @Test func faderGhostShowsTheDraftAndSendingIsAnExplicitSeparateAction() throws {
         var console = try console(.hardware, demo: false)
         try console.attach(route, at: 0)
         try console.receive([0xB0, 70, 12], at: 1)
         try console.receive([0x90, 110, 0], at: 1)
+        console.setFaderTarget(83)
+        #expect(console.faderPosition == 12 && console.faderGhostPosition == 83)
+        #expect(console.sentFaderTarget == nil && console.log.allSatisfy { $0.kind != .output })
         try console.recallFader(to: 83, at: 2) { bytes in
             #expect(bytes == [0xB0, 70, 83])
             return .accepted
         }
-        #expect(console.faderPosition == nil && console.faderDisplayPosition == 83)
+        #expect(console.faderPosition == nil && console.faderGhostPosition == 83 && console.sentFaderTarget == 83)
         console.setFaderTarget(24)
-        #expect(console.faderDisplayPosition == 83)
+        #expect(console.faderGhostPosition == 24 && console.sentFaderTarget == 83)
+        #expect(console.log.filter { $0.kind == .output }.count == 1)
 
         try console.receive([0xB0, 70, 81], at: 3)
-        #expect(console.faderPosition == 81 && console.faderDisplayPosition == 81 && console.sentFaderTarget == nil)
-        try console.recallFader(to: 52, at: 4) { _ in .accepted }
-        try console.recallFader(to: 17, at: 5) { _ in .notAttempted(reason: "no transport") }
-        #expect(console.faderDisplayPosition == 52)
-        try console.recallFader(to: 17, at: 6) { _ in .rejected(reason: "transport") }
-        #expect(console.faderDisplayPosition == nil)
-
-        try console.recallFader(to: 33, at: 7) { _ in .accepted }
-        try console.detach(at: 8)
-        #expect(console.faderDisplayPosition == nil && console.sentFaderTarget == nil)
+        #expect(console.faderPosition == 81 && console.faderGhostPosition == 24 && console.sentFaderTarget == nil)
+        console.setFaderTarget(81)
+        #expect(console.faderGhostPosition == nil)
+        console.setFaderTarget(17)
+        try console.recallFader(to: 17, at: 4) { _ in .notAttempted(reason: "no transport") }
+        #expect(console.faderGhostPosition == 17 && console.sentFaderTarget == nil)
+        try console.recallFader(to: 17, at: 5) { _ in .rejected(reason: "transport") }
+        #expect(console.faderPosition == nil && console.faderGhostPosition == 17 && console.sentFaderTarget == nil)
+        try console.recallFader(to: 17, at: 6) { _ in .accepted }
+        try console.detach(at: 7)
+        #expect(console.faderGhostPosition == 17 && console.sentFaderTarget == nil)
     }
 
     @Test func jogClearResetsOnlyTheReadoutWhenListening() throws {

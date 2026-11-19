@@ -1,9 +1,10 @@
 #if os(macOS)
+import AppKit
 import SwiftUI
 import XTouchOneAdapter
 import XTouchOnePanel
 
-/// The middle column: host-side values, key lights and the MIDI monitor.
+/// The lower half of the side panel: host-side values, key lights and the MIDI monitor.
 struct WorkspaceTabsView: View {
     @Bindable var model: AppModel
 
@@ -19,7 +20,68 @@ struct WorkspaceTabsView: View {
             case .monitor: MIDIMonitorView(model: model)
             }
         }
+    }
+}
+
+/// One card beside the device: the selected control above, the workspace tabs below, with a bar between
+/// them that drags to resize. The upper part never takes more height than its content needs, so the split
+/// only ever hides something when it is dragged smaller, and then the cut edge shows it. Double-clicking
+/// the bar fits the upper part to its content.
+struct SidePanelView: View {
+    let model: AppModel
+    @AppStorage("sidePanel.inspectorFraction") private var fraction = SidePanelView.defaultFraction
+    @State private var dragStart: Double?
+    @State private var hovering = false
+    @State private var inspectorHeight: CGFloat = .infinity
+
+    private static let defaultFraction = 0.5
+    private static let handleHeight: CGFloat = 17
+    private static let minPane: CGFloat = 120
+
+    var body: some View {
+        GeometryReader { proxy in
+            let available = max(proxy.size.height - Self.handleHeight, 1)
+            let minPane = min(Self.minPane, available / 2)
+            let split = min(max(available * fraction, minPane), available - minPane)
+            let top = min(split, max(inspectorHeight, 1))
+            VStack(spacing: 0) {
+                ControlInspectorView(model: model, onContentHeight: { inspectorHeight = $0 }).frame(height: top).clipped()
+                handle(top: top, available: available, minPane: minPane)
+                WorkspaceTabsView(model: model).padding(.top, 4).frame(height: available - top).clipped()
+            }
+        }
         .panelStyle()
+    }
+
+    private func handle(top: CGFloat, available: CGFloat, minPane: CGFloat) -> some View {
+        let active = hovering || dragStart != nil
+        return ZStack {
+            Rectangle().fill(Theme.stroke).frame(height: 1)
+            Capsule().fill(active ? Theme.selection : Color(white: 0.4)).frame(width: 40, height: 4)
+                .padding(.horizontal, 6).background(Color(red: 0.1, green: 0.105, blue: 0.118))
+        }
+        .frame(maxWidth: .infinity).frame(height: Self.handleHeight)
+        .contentShape(Rectangle())
+        .onHover(perform: setDividerHover)
+        .onDisappear { setDividerHover(false) }
+        .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
+            .onChanged { drag in
+                let start = dragStart ?? top
+                dragStart = start
+                fraction = min(max(start + drag.translation.height, minPane), available - minPane) / available
+            }
+            .onEnded { _ in dragStart = nil })
+        .onTapGesture(count: 2) {
+            fraction = min(max(inspectorHeight, minPane), available - minPane) / available
+        }
+        .help("拖动调整上下两部分的高度，双击让上半部分正好容纳内容")
+        .accessibilityIdentifier("sidePanel.divider")
+    }
+
+    private func setDividerHover(_ inside: Bool) {
+        guard hovering != inside else { return }
+        hovering = inside
+        if inside { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
     }
 }
 
@@ -58,7 +120,7 @@ private struct ValueListView: View {
     @Bindable var model: AppModel
 
     var body: some View {
-        ScrollView {
+        OverflowScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 Text(model.link == .mock ? "模拟设备的显示值。滑块是软件写入：经会话排队、过门禁后送到模拟设备。"
                     : "滑块是软件写入。只监听时全部被拒绝；允许发送后经限速和最终门禁写到设备。")
@@ -126,7 +188,7 @@ private struct LightListView: View {
     let model: AppModel
 
     var body: some View {
-        ScrollView {
+        OverflowScrollView {
             VStack(alignment: .leading, spacing: 4) {
                 Text("每个按键的灯：熄灭、点亮、闪烁。地址与面板按键的对应来自官方贴纸模板，尚未在实机上确认。")
                     .font(.caption).foregroundStyle(.secondary).padding(.bottom, 4)

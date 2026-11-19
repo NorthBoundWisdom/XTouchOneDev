@@ -12,14 +12,7 @@ struct ContentView: View {
             ModeBar(model: model)
             HeaderBar(model: model)
             Divider()
-            GeometryReader { proxy in
-                let inspectorWidth = min(max(proxy.size.width * 0.24, 300), 380)
-                HStack(spacing: 0) {
-                    SurfaceArea(model: model)
-                    Divider()
-                    ControlInspectorView(model: model).frame(width: inspectorWidth)
-                }
-            }
+            SurfaceArea(model: model)
         }
         .background(Theme.background)
         .preferredColorScheme(.dark)
@@ -27,64 +20,99 @@ struct ContentView: View {
     }
 }
 
-/// The panel and the workspace side by side, or stacked when the window is narrow.
+/// The device and the side panel. The whole device is always visible: it scales to fit the area, and the
+/// side panel goes beside it, or below it when the window is tall and narrow enough for that to give a larger device.
 private struct SurfaceArea: View {
     let model: AppModel
     private static let padding: CGFloat = 18
     private static let gap: CGFloat = 16
-    private static let minWorkspace: CGFloat = 380
+    private static let minSideWidth: CGFloat = 400
+    private static let maxSideWidth: CGFloat = 760
+    private static let minSideHeight: CGFloat = 460
+    private static let scaleRange: ClosedRange<CGFloat> = 0.5...1.5
+
+    struct Plan: Equatable {
+        var stacked: Bool
+        var scale: CGFloat
+        var side: CGSize
+    }
+
+    static func plan(in size: CGSize) -> Plan {
+        let natural = SurfacePanelView.naturalSize
+        let width = max(size.width - padding * 2, 0), height = max(size.height - padding * 2, 0)
+        let beside = min(height / natural.height, (width - gap - minSideWidth) / natural.width)
+        let below = min(width / natural.width, (height - gap - minSideHeight) / natural.height)
+        // Stacking has to buy a visibly larger device, so the layout does not flip on small resizes.
+        let stacked = min(below, scaleRange.upperBound) > min(beside, scaleRange.upperBound) * 1.1
+        let scale = min(max(stacked ? below : beside, scaleRange.lowerBound), scaleRange.upperBound)
+        let side = stacked
+            ? CGSize(width: min(width, max(natural.width * scale, maxSideWidth)),
+                     height: max(height - gap - natural.height * scale, minSideHeight))
+            : CGSize(width: min(max(width - gap - natural.width * scale, minSideWidth), maxSideWidth), height: height)
+        return Plan(stacked: stacked, scale: scale, side: side)
+    }
 
     var body: some View {
         GeometryReader { proxy in
+            let plan = Self.plan(in: proxy.size)
+            let layout = plan.stacked ? AnyLayout(VStackLayout(spacing: Self.gap)) : AnyLayout(HStackLayout(alignment: .top, spacing: Self.gap))
             let natural = SurfacePanelView.naturalSize
-            let width = proxy.size.width - Self.padding * 2, height = proxy.size.height - Self.padding * 2
-            let sideScale = min(max(min((width - Self.gap - Self.minWorkspace) / natural.width, height / natural.height), 0.8), 1.5)
-            let sideBySide = width - Self.gap - natural.width * sideScale >= Self.minWorkspace
-            let scale = sideBySide ? sideScale : min(max(width / natural.width, 0.8), 1.5)
-            let workspaceWidth = sideBySide ? min(width - Self.gap - natural.width * scale, 640) : natural.width * scale
-            ScrollView([.vertical, .horizontal]) {
-                Group {
-                    if sideBySide {
-                        HStack(alignment: .top, spacing: Self.gap) { content(scale, workspaceWidth, height) }
-                    } else {
-                        VStack(spacing: Self.gap) { content(scale, workspaceWidth, 420) }
-                    }
-                }
-                .padding(Self.padding)
-                .frame(minWidth: proxy.size.width, alignment: .top)
+            layout {
+                SurfacePanelView(model: model)
+                    .scaleEffect(plan.scale, anchor: .topLeading)
+                    .frame(width: natural.width * plan.scale, height: natural.height * plan.scale, alignment: .topLeading)
+                SidePanelView(model: model)
+                    .frame(width: plan.side.width, height: plan.side.height)
             }
+            .padding(Self.padding)
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
+            .clipped()
+            .animation(.snappy(duration: 0.2), value: plan.stacked)
         }
-    }
-
-    @ViewBuilder
-    private func content(_ scale: CGFloat, _ workspaceWidth: CGFloat, _ workspaceHeight: CGFloat) -> some View {
-        let natural = SurfacePanelView.naturalSize
-        SurfacePanelView(model: model)
-            .scaleEffect(scale, anchor: .topLeading)
-            .frame(width: natural.width * scale, height: natural.height * scale, alignment: .topLeading)
-        WorkspaceTabsView(model: model)
-            .frame(width: workspaceWidth, height: max(360, min(workspaceHeight, natural.height * scale)))
     }
 }
 
 struct XTouchOneApplication: App {
     var body: some Scene {
-        WindowGroup("X-Touch One Console") { ContentView(model: AppModel()).frame(minWidth: 1180, minHeight: 720) }
-            .defaultSize(width: 1520, height: 900)
+        WindowGroup("X-Touch One Console") { ContentView(model: AppModel()).frame(minWidth: 900, minHeight: 680) }
+            .defaultSize(width: 1280, height: 900)
     }
 }
 
-/// `--snapshot <png> [--sample] [--tab values|lights|monitor] [--hardware]` lays the whole window out
+private enum SnapshotError: LocalizedError {
+    case missingOutput
+    case invalidSize
+
+    var errorDescription: String? {
+        switch self {
+        case .missingOutput: "--snapshot requires a PNG output path."
+        case .invalidSize: "--size requires two positive integers (WIDTHxHEIGHT), up to 8192 per side and 16777216 total points."
+        }
+    }
+}
+
+private func snapshotSize(arguments: [String]) throws -> NSSize {
+    guard let flag = arguments.firstIndex(of: "--size") else { return NSSize(width: 1520, height: 900) }
+    guard flag + 1 < arguments.count else { throw SnapshotError.invalidSize }
+    let parts = arguments[flag + 1].split(separator: "x", omittingEmptySubsequences: false)
+    guard parts.count == 2, let width = Int(parts[0]), let height = Int(parts[1]),
+          (1...8192).contains(width), (1...8192).contains(height), width * height <= 16_777_216 else {
+        throw SnapshotError.invalidSize
+    }
+    return NSSize(width: width, height: height)
+}
+
+/// `--snapshot <png> [--sample] [--tab values|lights|monitor] [--hardware] [--size <width>x<height>]` lays the whole window out
 /// off screen, writes one image and exits. It shows no window and opens no MIDI endpoint.
 @MainActor
 func writeSnapshot(to path: String, arguments: [String]) throws {
+    let size = try snapshotSize(arguments: arguments)
     let model = AppModel()
     if arguments.contains("--sample") { model.loadSampleScene() }
     if arguments.contains("--hardware") { model.setMode(.hardwareListen) }
     if let flag = arguments.firstIndex(of: "--tab"), flag + 1 < arguments.count, let tab = WorkspaceTab(rawValue: arguments[flag + 1]) {
         model.tab = tab
     }
-    let size = NSSize(width: 1520, height: 900)
     let host = NSHostingView(rootView: ContentView(model: model).frame(width: size.width, height: size.height))
     let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: -20000, y: -20000), size: size), styleMask: [.borderless],
                           backing: .buffered, defer: false)
@@ -100,10 +128,13 @@ func writeSnapshot(to path: String, arguments: [String]) throws {
 }
 
 let arguments = CommandLine.arguments
-if let flag = arguments.firstIndex(of: "--snapshot"), flag + 1 < arguments.count {
-    NSApplication.shared.setActivationPolicy(.prohibited)
-    do { try writeSnapshot(to: arguments[flag + 1], arguments: arguments) } catch {
-        FileHandle.standardError.write(Data("snapshot failed: \(error)\n".utf8))
+if let flag = arguments.firstIndex(of: "--snapshot") {
+    do {
+        guard flag + 1 < arguments.count, !arguments[flag + 1].hasPrefix("--") else { throw SnapshotError.missingOutput }
+        NSApplication.shared.setActivationPolicy(.prohibited)
+        try writeSnapshot(to: arguments[flag + 1], arguments: arguments)
+    } catch {
+        FileHandle.standardError.write(Data("snapshot failed: \(error.localizedDescription)\n".utf8))
         exit(1)
     }
     exit(0)

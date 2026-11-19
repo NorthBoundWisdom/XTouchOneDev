@@ -76,15 +76,9 @@ struct SurfacePanelView: View {
         .padding(.horizontal, 30).padding(.vertical, 18)
         .frame(width: Self.naturalSize.width, height: Self.naturalSize.height, alignment: .topLeading)
         .background {
-            ZStack {
-                // Silver side rails behind the dark top plate, as on the hardware.
-                RoundedRectangle(cornerRadius: 20)
-                    .fill(LinearGradient(colors: [Color(white: 0.74), Color(white: 0.5)], startPoint: .top, endPoint: .bottom))
-                    .shadow(color: .black.opacity(0.45), radius: 14, y: 6)
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(LinearGradient(colors: [Theme.chassisTop, Theme.chassisBottom], startPoint: .top, endPoint: .bottom))
-                    .padding(.horizontal, 12)
-            }
+            RoundedRectangle(cornerRadius: 20)
+                .fill(LinearGradient(colors: [Theme.chassisTop, Theme.chassisBottom], startPoint: .top, endPoint: .bottom))
+                .shadow(color: .black.opacity(0.45), radius: 14, y: 6)
         }
         .overlay { RoundedRectangle(cornerRadius: 20).stroke(Theme.stroke) }
     }

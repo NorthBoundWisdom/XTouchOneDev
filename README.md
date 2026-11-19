@@ -93,7 +93,7 @@ swift test --scratch-path build/swiftpm
 - **实体端点**：选择输入端点后连接，连接本身不发送。缺省只监听，面板显示设备报告的按键、推子位置和触摸；推子位置未知时画虚线推子帽。顶部的“允许发送”和设置里的“允许电机召回”是两个单独的开关，缺省都关。面板上画的灯和显示是已被传输接受的发送内容，不是设备实际显示。实体来源下面板上的点击不产生任何输入。
 - 改来源、模式、通道或任一开关都会新建会话，之前的排队显示和观察不保留。
 - 按键上的小数字是地址。地址与面板按键的对应（`XTouchOnePanelLayout`）来自 Behringer 的贴纸模板：编码器按压是 0，CHANNEL 行 1–6，FUNCTION 行 7–12，TRANSPORT 上排 13–19，走带键 20–24，FADER BANK 25–26，CHANNEL 27–28，SCRUB 29，方向键上 30、左 31、中 32、右 33、下 34。数码管段位顺序按 MIDI 模式文档。两者都还没有在实机上确认。
-- `XTouchOneApp --snapshot <png> [--sample] [--tab values|lights|monitor] [--hardware]` 在屏幕外排版整个窗口，写一张图后退出，不显示窗口，也不打开 MIDI 端点。
+- `XTouchOneApp --snapshot <png> [--sample] [--tab values|lights|monitor] [--hardware] [--size <宽>x<高>]` 在屏幕外排版整个窗口，写一张图后退出，不显示窗口，也不打开 MIDI 端点。宽高为正整数，每边上限 8192，总面积上限 16777216 平方点。
 
 实体来源的显示速率用了一个保守的占位值（每秒 50 条），不是经过验证的设备预算。
 

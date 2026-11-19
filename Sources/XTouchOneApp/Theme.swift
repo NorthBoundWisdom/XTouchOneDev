@@ -82,6 +82,75 @@ extension View {
     func panelStyle(padding: CGFloat = 14) -> some View { modifier(PanelStyle(padding: padding)) }
 }
 
+extension View {
+    /// A darker block inside a panel, for one group of related rows.
+    func insetStyle() -> some View {
+        padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.black.opacity(0.18), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+/// A vertical scroll view that shows when part of its content is out of view: the cut edge fades, and a
+/// "更多" chip at the bottom scrolls to the end. It also reports the full content height.
+struct OverflowScrollView<Content: View>: View {
+    var onContentHeight: (CGFloat) -> Void = { _ in }
+    @ViewBuilder var content: Content
+    @State private var frame = CGRect.zero
+    @State private var viewport: CGFloat = 0
+
+    private static var bottomID: String { "overflow.bottom" }
+
+    var body: some View {
+        let hiddenAbove = -frame.minY > 1
+        let hiddenBelow = frame.maxY - viewport > 1
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(spacing: 0) {
+                    content
+                    Color.clear.frame(height: 0).id(Self.bottomID)
+                }
+                .onGeometryChange(for: CGRect.self, of: overflowContentFrame) { value in
+                    frame = value
+                    onContentHeight(value.height)
+                }
+            }
+            .coordinateSpace(.named(overflowSpace))
+            .onGeometryChange(for: CGFloat.self, of: overflowViewportHeight) { viewport = $0 }
+            .mask {
+                VStack(spacing: 0) {
+                    LinearGradient(colors: [.black.opacity(hiddenAbove ? 0 : 1), .black], startPoint: .top, endPoint: .bottom).frame(height: 18)
+                    Color.black
+                    LinearGradient(colors: [.black, .black.opacity(hiddenBelow ? 0.15 : 1)], startPoint: .top, endPoint: .bottom).frame(height: 36)
+                }
+            }
+            .overlay(alignment: .bottom) {
+                if hiddenBelow {
+                    Button { withAnimation(.snappy) { proxy.scrollTo(Self.bottomID, anchor: .bottom) } } label: {
+                        Label("更多", systemImage: "chevron.down")
+                            .font(.caption.bold())
+                            .padding(.horizontal, 10).padding(.vertical, 4)
+                            .foregroundStyle(Color.black)
+                            .background(Theme.value, in: Capsule())
+                            .shadow(color: .black.opacity(0.5), radius: 4, y: 2)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.bottom, 4)
+                    .help("下面还有内容，点击滚动到底部")
+                    .transition(.opacity)
+                    .accessibilityIdentifier("overflow.more")
+                }
+            }
+            .animation(.easeOut(duration: 0.15), value: hiddenBelow)
+        }
+    }
+}
+
+// Free functions, so the geometry transforms capture nothing from the generic view.
+private let overflowSpace = "overflow.scroll"
+private func overflowContentFrame(_ geometry: GeometryProxy) -> CGRect { geometry.frame(in: .named(overflowSpace)) }
+private func overflowViewportHeight(_ geometry: GeometryProxy) -> CGFloat { geometry.size.height }
+
 struct SectionTitle: View {
     let title: String
     let icon: String

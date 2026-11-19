@@ -3,12 +3,13 @@ import SwiftUI
 import XTouchOneAdapter
 import XTouchOnePanel
 
-/// The right column: what the selected control is, its state, and its MIDI addresses.
+/// The upper half of the side panel: what the selected control is, its state, and its MIDI addresses.
 struct ControlInspectorView: View {
     @Bindable var model: AppModel
+    var onContentHeight: (CGFloat) -> Void = { _ in }
 
     var body: some View {
-        ScrollView {
+        OverflowScrollView(onContentHeight: onContentHeight) {
             VStack(alignment: .leading, spacing: 12) {
                 if let selection = model.selection {
                     identity(selection)
@@ -17,10 +18,9 @@ struct ControlInspectorView: View {
                     notes(selection)
                 } else {
                     Text("在左侧面板选择一个控件").foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, minHeight: 160).panelStyle()
+                        .frame(maxWidth: .infinity, minHeight: 160).insetStyle()
                 }
             }
-            .padding(14)
         }
     }
 
@@ -46,7 +46,7 @@ struct ControlInspectorView: View {
             Text("\(model.profileSummary) · \(model.link == .mock ? "Mock 设备" : "实体设备")")
                 .font(.caption.monospaced()).foregroundStyle(.secondary)
         }
-        .panelStyle()
+        .insetStyle()
         .accessibilityIdentifier("inspector.identity")
     }
 
@@ -66,21 +66,21 @@ struct ControlInspectorView: View {
                 Text("灯环与输入互不相干：转动编码器不会自己改变灯环，除非打开演示联动。")
                     .font(.caption2).foregroundStyle(.secondary)
             }
-            .panelStyle()
+            .insetStyle()
         case .jog:
             VStack(alignment: .leading, spacing: 10) {
                 SectionTitle("拨轮", icon: "circle.dashed")
                 Readout(title: "输入累计", value: "\(model.console.jogTicks)", color: Theme.observed)
                 Text("拨轮只有输入，没有任何显示或反馈地址。").font(.caption2).foregroundStyle(.secondary)
             }
-            .panelStyle()
+            .insetStyle()
         case .meter:
             VStack(alignment: .leading, spacing: 10) {
                 SectionTitle("电平表", icon: "chart.bar.fill")
                 Readout(title: "已发送", value: model.console.shown.meter.map { String($0) } ?? "—")
                 softwareSlider(model.console.shown.meter) { model.show(.meter($0)) }
             }
-            .panelStyle()
+            .insetStyle()
         case .lcd: lcdState
         case .segments:
             VStack(alignment: .leading, spacing: 10) {
@@ -93,7 +93,7 @@ struct ControlInspectorView: View {
                 Text("左边两位是分配区，右边十位是计数区。段位顺序按 MIDI 模式文档：bit 0 是 a 段，bit 6 是 g 段。")
                     .font(.caption2).foregroundStyle(.secondary)
             }
-            .panelStyle()
+            .insetStyle()
         }
     }
 
@@ -117,7 +117,7 @@ struct ControlInspectorView: View {
                 .pickerStyle(.segmented).accessibilityIdentifier("inspector.light")
             }
         }
-        .panelStyle()
+        .insetStyle()
     }
 
     private var faderState: some View {
@@ -143,7 +143,7 @@ struct ControlInspectorView: View {
             Text("电机只在标题栏“电机归位…”确认后移动一次，连接、换模式和重连都不会自动移动。召回尝试之后，观察位置回到未知，等设备重新报告。")
                 .font(.caption2).foregroundStyle(.secondary)
         }
-        .panelStyle()
+        .insetStyle()
     }
 
     private var lcdState: some View {
@@ -165,7 +165,7 @@ struct ControlInspectorView: View {
             }
             Button("写入液晶屏") { model.showLCD() }.accessibilityIdentifier("inspector.writeLCD")
         }
-        .panelStyle()
+        .insetStyle()
     }
 
     private func softwareSlider(_ value: UInt8?, onChange: @escaping (UInt8) -> Void) -> some View {
@@ -194,14 +194,14 @@ struct ControlInspectorView: View {
             if let feedback = pair.feedback { LabeledContent("反馈 (RX)") { Text(feedback).font(.callout.monospaced()) } }
             Text("地址来自 Behringer 的 MIDI 模式文档，尚无实机证据。").font(.caption2).foregroundStyle(.secondary)
         }
-        .panelStyle()
+        .insetStyle()
     }
 
     @ViewBuilder
     private func notes(_ selection: PanelSelection) -> some View {
         if case .key = selection {
             Label("地址与面板按键的对应来自 Behringer 的贴纸模板（MIDI/REL、CC/REL 页），尚未在实机上确认。", systemImage: "info.circle")
-                .font(.caption).foregroundStyle(.secondary).panelStyle()
+                .font(.caption).foregroundStyle(.secondary).insetStyle()
         }
     }
 

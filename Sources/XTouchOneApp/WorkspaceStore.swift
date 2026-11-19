@@ -1,6 +1,7 @@
 #if os(macOS)
 import Foundation
 import SurfacePluginContracts
+import XTouchOneAdapter
 import XTouchOnePanel
 
 struct SavedWorkspace: Codable {
@@ -8,6 +9,21 @@ struct SavedWorkspace: Codable {
     var configuration: XTouchOneConfiguration
     var values: [ParameterID: Double]
     var library: [String: XTouchOneConfiguration]
+    var midi: MIDISelection?
+}
+
+struct MIDISelection: Codable {
+    let mode: String
+    let channel: UInt8
+    let sourceID: Int32?
+    let destinationID: Int32?
+
+    func profile() throws -> XTouchOneMIDIProfile {
+        guard let mode = XTouchOneMIDIMode(rawValue: mode), sourceID != 0, destinationID != 0 else {
+            throw XTouchOneWorkspaceError.incompatibleConfiguration
+        }
+        return try XTouchOneMIDIProfile(mode: mode, channel: channel)
+    }
 }
 
 struct WorkspaceStore {
@@ -24,6 +40,7 @@ struct WorkspaceStore {
         let document = try JSONDecoder().decode(SavedWorkspace.self, from: data)
         guard document.version == 1 else { throw XTouchOneWorkspaceError.incompatibleConfiguration }
         _ = try XTouchOneWorkspace(configuration: document.configuration, savedValues: document.values)
+        _ = try document.midi?.profile()
         for configuration in document.library.values { try configuration.validate() }
         return document
     }

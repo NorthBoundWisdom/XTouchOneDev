@@ -108,7 +108,7 @@ swift test --scratch-path build/swiftpm
 | Agent | 显式开启八个共享 AgentPlugin 模拟槽位，可启动、中止并在面板批准。已绑定灯在运行时亮、等待批准时闪烁。 |
 | 录制 | 将当前连接、原始输入和传输已接受的输出保存为 JSONL。审查覆盖率、异常和电机报文，原生录制可回放输入到隔离模拟会话。Compact 格式可查看设备名及收发条数。单条显示测试也在此工作区。 |
 
-参数、配置库、场景和软件值保存到 `~/Library/Application Support/XTouchOneConsole/workspace.json`。读到无效文件时保留原文件并显示错误。`--isolated` 使用临时内存工作区，`--startup-smoke` 验证离线启动后退出。载入配置、调用场景和撤销保留已有电机召回门禁，推子目标值仍由面板上的本地确认发送。
+参数、配置库、场景、软件值、MIDI 模式、通道和手动选择的端点保存到 `~/Library/Application Support/XTouchOneConsole/workspace.json`。应用仍从模拟和关闭实体写入的状态启动。读到无效文件时保留原文件并显示错误。`--isolated` 使用临时内存工作区，`--startup-smoke` 验证离线启动后退出。载入配置、调用场景和撤销保留已有电机召回门禁，推子目标值仍由面板上的本地确认发送。
 
 ## 命令行
 

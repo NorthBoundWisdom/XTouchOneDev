@@ -62,8 +62,8 @@ final class AppModel {
     private(set) var captureEvents = 0
     private(set) var recording = false
     @ObservationIgnored private var captureWriter: LiveCaptureWriter?
-    var sourceID: Int32?
-    var destinationID: Int32?
+    var sourceID: Int32? { didSet { if sourceID != oldValue { savePending = true } } }
+    var destinationID: Int32? { didSet { if destinationID != oldValue { savePending = true } } }
     var selection: PanelSelection? = .fader
     var tab = WorkspaceTab.values
     var highlightedGroup: String?
@@ -91,18 +91,27 @@ final class AppModel {
         let store = persistent ? WorkspaceStore.standard : nil
         workspaceStore = store
         var restored: XTouchOneWorkspace?
+        var savedMIDI: MIDISelection?
+        var profile = try! XTouchOneMIDIProfile(mode: .midi, channel: 1)
         do {
             if let saved = try store?.load() {
                 restored = try XTouchOneWorkspace(configuration: saved.configuration, savedValues: saved.values)
                 configurationLibrary = saved.library
+                savedMIDI = saved.midi
+                profile = try saved.midi?.profile() ?? profile
             }
         } catch {
             diskWritable = false
             storageError = "保留原工作区文件。\(error.localizedDescription)"
         }
-        console = try! XTouchOneConsole(link: .mock, profile: XTouchOneMIDIProfile(mode: .midi, channel: 1),
+        console = try! XTouchOneConsole(link: .mock, profile: profile,
                                         displayRate: .unlimited, outputPolicy: .write, mechanismPolicy: .localRecall,
                                         workspace: restored)
+        mode = profile.mode
+        channel = profile.channel
+        sourceID = savedMIDI?.sourceID
+        destinationID = savedMIDI?.destinationID
+        savePending = false
     }
 
     var now: Double { ProcessInfo.processInfo.systemUptime }
@@ -136,6 +145,7 @@ final class AppModel {
     func configure(link: XTouchOneConsole.Link? = nil, mode: XTouchOneMIDIMode? = nil, channel: UInt8? = nil,
                    allowWrite: Bool? = nil, allowRecall: Bool? = nil) {
         let reconnect = isConnected && (link ?? self.link) == .hardware && self.link == .hardware
+        if mode != nil || channel != nil { savePending = true }
         closeConnection()
         if recording { stopCapture() }
         self.link = link ?? self.link
@@ -161,8 +171,6 @@ final class AppModel {
     func refreshEndpoints() {
         sources = XTouchOneMIDIEndpoint.all(.source)
         destinations = XTouchOneMIDIEndpoint.all(.destination)
-        if !sources.contains(where: { $0.uniqueID == sourceID }) { sourceID = nil }
-        if !destinations.contains(where: { $0.uniqueID == destinationID }) { destinationID = nil }
     }
 
     /// Opens an input port and, with write permission, the selected output port. Opening sends nothing.
@@ -372,7 +380,8 @@ final class AppModel {
         lastSaveAt = now
         do {
             try workspaceStore.save(SavedWorkspace(configuration: workspace.configuration, values: workspace.values,
-                                                   library: configurationLibrary))
+                library: configurationLibrary, midi: .init(mode: mode.rawValue, channel: channel,
+                                                          sourceID: sourceID, destinationID: destinationID)))
             savePending = false
             storageError = nil
         } catch {

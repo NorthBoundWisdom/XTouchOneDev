@@ -178,17 +178,25 @@ struct ConnectionSettingsView: View {
                 SectionTitle("实体端点", icon: "cable.connector")
                 Picker("输入", selection: $model.sourceID) {
                     Text("未选择").tag(Int32?.none)
+                    if let id = model.sourceID, !model.sources.contains(where: { $0.uniqueID == id }) {
+                        Text("离线 · \(id)").tag(Optional(id))
+                    }
                     ForEach(model.sources, id: \.uniqueID) { Text(Self.name($0)).tag(Int32?.some($0.uniqueID)) }
                 }
                 .disabled(model.isConnected).accessibilityIdentifier("settings.input")
                 Picker("输出", selection: $model.destinationID) {
                     Text("不打开").tag(Int32?.none)
+                    if let id = model.destinationID, !model.destinations.contains(where: { $0.uniqueID == id }) {
+                        Text("离线 · \(id)").tag(Optional(id))
+                    }
                     ForEach(model.destinations, id: \.uniqueID) { Text(Self.name($0)).tag(Int32?.some($0.uniqueID)) }
                 }
                 .disabled(model.isConnected).accessibilityIdentifier("settings.output")
                 HStack {
                     Button(model.isConnected ? "断开" : "连接") { model.isConnected ? model.disconnect() : model.connect() }
-                        .disabled(model.link != .hardware || (!model.isConnected && model.sourceID == nil))
+                        .disabled(model.link != .hardware || (!model.isConnected && !model.sources.contains {
+                            $0.uniqueID == model.sourceID && !$0.isOffline
+                        }))
                         .accessibilityIdentifier("settings.connect")
                     Button("刷新端点") { model.refreshEndpoints() }.disabled(model.isConnected)
                     Spacer()

@@ -605,7 +605,7 @@ struct AgentsWorkspace: View {
     var body: some View {
         OverflowScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                Toggle("模拟 Agent", isOn: Binding(get: { model.console.agents != nil }, set: model.toggleAgents))
+                Toggle("模拟 Agent", isOn: Binding(get: { model.console.agents != nil }, set: { model.toggleAgents($0) }))
                     .accessibilityIdentifier("agents.enable")
                 if let agent = model.console.agents {
                     ForEach(agent.slots, id: \.id) { slot in

@@ -176,7 +176,7 @@ struct ConnectionSettingsView: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 SectionTitle("实体端点", icon: "cable.connector")
-                Toggle("自动连接（只监听）", isOn: Binding(get: { model.autoConnect }, set: model.setAutoConnect))
+                Toggle("自动连接（只监听）", isOn: Binding(get: { model.autoConnect }, set: { model.setAutoConnect($0) }))
                     .accessibilityIdentifier("settings.autoConnect")
                 if model.autoConnect && model.autoConnectPaused {
                     Button("恢复自动连接") { model.resumeAutomaticConnection() }

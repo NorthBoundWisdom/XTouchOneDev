@@ -539,7 +539,7 @@ struct FaderCell: View {
         let position = model.console.faderPosition
         let touched = model.console.faderTouched == true
         let preview = dragScope != nil && dragScope == model.hardwareFaderSendScope ? stagedTarget : nil
-        let displayed = preview ?? position
+        let displayed = preview ?? model.console.faderDisplayPosition
         let offset = travel * (1 - CGFloat(displayed ?? 0) / 127)
         VStack(spacing: 3) {
             ZStack(alignment: .top) {

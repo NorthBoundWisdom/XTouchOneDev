@@ -50,6 +50,8 @@ public struct XTouchOneConsole: Sendable {
     /// The mock fader's physical position. The hardware link has no such knowledge.
     public private(set) var mockFader: UInt8 = 0
     public private(set) var faderTarget: UInt8
+    /// An accepted motor command awaiting a position report in this connection generation.
+    public private(set) var sentFaderTarget: UInt8?
     public private(set) var log: [Entry] = []
     public var workspace: XTouchOneWorkspace
     public private(set) var agents: AgentPlugin?
@@ -81,6 +83,8 @@ public struct XTouchOneConsole: Sendable {
         return UInt8(value)
     }
 
+    public var faderDisplayPosition: UInt8? { faderPosition ?? sentFaderTarget }
+
     public var faderTouched: Bool? {
         guard case .flag(let value)? = (try? session.observation(of: .faderContact, at: 0))?.value else { return nil }
         return value
@@ -104,6 +108,7 @@ public struct XTouchOneConsole: Sendable {
         pressed.removeAll()
         lit.removeAll()
         jogDisplayLinked = false
+        sentFaderTarget = nil
         workspace.endInputGroup()
         if link == .hardware { shown = XTouchOneSimulatedDevice(mode: session.profile.mode, channel: session.profile.channel) }
         append(.note, [], text, at, connection: connected)
@@ -152,6 +157,7 @@ public struct XTouchOneConsole: Sendable {
             case (.absolute, .number(let value)) where event.elementID == "encoder.turn": encoderTicks = Int(value)
             case (.absolute, .number(let value)) where event.elementID == "fader":
                 let position = UInt8(value)
+                sentFaderTarget = nil
                 if link == .mock { mockFader = position }
                 // An unknown position gets a baseline. A repeated sample or just touching
                 // the fader must not erase a target chosen in the software.
@@ -289,14 +295,20 @@ public struct XTouchOneConsole: Sendable {
         switch outcome {
         case .refused(let refusal): note("recall refused: \(refusal)", at: at)
         case .send(let send):
-            if try deliver(send, at: at, write: write), link == .mock { mockFader = position }
+            let receipt = try deliver(send, at: at, write: write)
+            if receipt.creditedToCurrentScope {
+                if link == .mock { mockFader = position }
+                else { sentFaderTarget = position }
+            } else if receipt.fact.result.hasTransportAttempt {
+                sentFaderTarget = nil
+            }
         }
         return outcome
     }
 
     @discardableResult
     private mutating func deliver(_ send: XTouchOneSend, at: Double,
-                                  write: (([UInt8]) -> FeedbackAttemptResult)?) throws -> Bool {
+                                  write: (([UInt8]) -> FeedbackAttemptResult)?) throws -> XTouchOneReceipt {
         let result: FeedbackAttemptResult
         if case .rejected(let rejection) = session.preflight(send) {
             result = .notAttempted(reason: "\(rejection)")
@@ -305,10 +317,10 @@ public struct XTouchOneConsole: Sendable {
         } else {
             result = write?(send.bytes) ?? .notAttempted(reason: "no transport")
         }
-        _ = try session.complete(send, result: result, at: at)
+        let receipt = try session.complete(send, result: result, at: at)
         if result.successfulSend { shown.receive(send.bytes) }
         append(.output, send.bytes, "\(send.targetID) \(result)", at, result: result)
-        return result.successfulSend
+        return receipt
     }
 
     public mutating func note(_ text: String, at: Double) { append(.note, [], text, at) }

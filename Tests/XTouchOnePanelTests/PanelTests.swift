@@ -102,6 +102,32 @@ struct PanelTests {
         #expect(console.faderTarget == 27)
     }
 
+    @Test func acceptedHardwareTargetPositionsTheGhostUntilADeviceReport() throws {
+        var console = try console(.hardware, demo: false)
+        try console.attach(route, at: 0)
+        try console.receive([0xB0, 70, 12], at: 1)
+        try console.receive([0x90, 110, 0], at: 1)
+        try console.recallFader(to: 83, at: 2) { bytes in
+            #expect(bytes == [0xB0, 70, 83])
+            return .accepted
+        }
+        #expect(console.faderPosition == nil && console.faderDisplayPosition == 83)
+        console.setFaderTarget(24)
+        #expect(console.faderDisplayPosition == 83)
+
+        try console.receive([0xB0, 70, 81], at: 3)
+        #expect(console.faderPosition == 81 && console.faderDisplayPosition == 81 && console.sentFaderTarget == nil)
+        try console.recallFader(to: 52, at: 4) { _ in .accepted }
+        try console.recallFader(to: 17, at: 5) { _ in .notAttempted(reason: "no transport") }
+        #expect(console.faderDisplayPosition == 52)
+        try console.recallFader(to: 17, at: 6) { _ in .rejected(reason: "transport") }
+        #expect(console.faderDisplayPosition == nil)
+
+        try console.recallFader(to: 33, at: 7) { _ in .accepted }
+        try console.detach(at: 8)
+        #expect(console.faderDisplayPosition == nil && console.sentFaderTarget == nil)
+    }
+
     @Test func jogClearResetsOnlyTheReadoutWhenListening() throws {
         var console = try console(.hardware, output: .observe, demo: false)
         try console.attach(route, at: 0)

@@ -12,6 +12,26 @@ func check(_ status: OSStatus, _ operation: String) throws {
     guard status == noErr else { throw XTouchOneCoreMIDIError.status(operation, status) }
 }
 
+private func isSetupChange(_ id: MIDINotificationMessageID) -> Bool {
+    switch id {
+    case .msgSetupChanged, .msgObjectAdded, .msgObjectRemoved, .msgPropertyChanged: true
+    default: false
+    }
+}
+
+/// Receives endpoint-catalogue changes even while no device input port is open.
+public final class XTouchOneMIDISetupObserver {
+    private var client = MIDIClientRef()
+
+    public init(clientName: String, changed: @escaping @Sendable () -> Void) throws {
+        try check(MIDIClientCreateWithBlock(clientName as CFString, &client) { notification in
+            if isSetupChange(notification.pointee.messageID) { changed() }
+        }, "MIDIClientCreate")
+    }
+
+    deinit { if client != 0 { MIDIClientDispose(client) } }
+}
+
 /// Endpoint facts as CoreMIDI reports them. Reading them sends nothing to any device.
 public struct XTouchOneMIDIEndpoint: Encodable, Equatable, Sendable {
     public enum Direction: String, Encodable, Sendable { case source, destination }
@@ -114,10 +134,7 @@ public final class XTouchOneMIDIInput: @unchecked Sendable {
         self.sourceUniqueID = sourceUniqueID
         source = try XTouchOneMIDIEndpoint.find(sourceUniqueID, .source)
         try check(MIDIClientCreateWithBlock(clientName as CFString, &client) { notification in
-            let id = notification.pointee.messageID
-            if id == .msgSetupChanged || id == .msgObjectAdded || id == .msgObjectRemoved || id == .msgPropertyChanged {
-                setupChanged()
-            }
+            if isSetupChange(notification.pointee.messageID) { setupChanged() }
         }, "MIDIClientCreate")
         do {
             let box = ReaderBox()
@@ -166,11 +183,8 @@ public final class XTouchOneMIDISourceMonitor {
         self.clientName = clientName
         self.event = event
         try check(MIDIClientCreateWithBlock(clientName as CFString, &client) { [weak self] notification in
-            switch notification.pointee.messageID {
-            case .msgSetupChanged, .msgObjectAdded, .msgObjectRemoved, .msgPropertyChanged:
+            if isSetupChange(notification.pointee.messageID) {
                 DispatchQueue.main.async { [weak self] in self?.refresh() }
-            default:
-                break
             }
         }, "MIDIClientCreate")
         refresh()

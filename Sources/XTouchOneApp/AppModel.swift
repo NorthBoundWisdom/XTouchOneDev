@@ -52,6 +52,8 @@ final class AppModel {
     private(set) var channel: UInt8 = 1
     private(set) var allowWrite = false
     private(set) var allowRecall = false
+    private(set) var autoConnect = false
+    private(set) var autoConnectPaused = false
     private(set) var sources: [XTouchOneMIDIEndpoint] = []
     private(set) var destinations: [XTouchOneMIDIEndpoint] = []
     private(set) var lastError: String?
@@ -81,15 +83,19 @@ final class AppModel {
     @ObservationIgnored private var input: XTouchOneMIDIInput?
     @ObservationIgnored private var output: XTouchOneMIDIOutput?
     @ObservationIgnored private var connectionID: UUID?
+    @ObservationIgnored private var setupObserver: XTouchOneMIDISetupObserver?
+    @ObservationIgnored private var lastAutomaticProbe = -Double.infinity
+    @ObservationIgnored private let midiAccess: Bool
 
     @ObservationIgnored private let workspaceStore: WorkspaceStore?
     @ObservationIgnored private var diskWritable = true
     @ObservationIgnored private var savePending = false
     @ObservationIgnored private var lastSaveAt = 0.0
 
-    init(persistent: Bool = false) {
+    init(persistent: Bool = false, midiAccess: Bool = true) {
         let store = persistent ? WorkspaceStore.standard : nil
         workspaceStore = store
+        self.midiAccess = midiAccess
         var restored: XTouchOneWorkspace?
         var savedMIDI: MIDISelection?
         var profile = try! XTouchOneMIDIProfile(mode: .midi, channel: 1)
@@ -111,6 +117,7 @@ final class AppModel {
         channel = profile.channel
         sourceID = savedMIDI?.sourceID
         destinationID = savedMIDI?.destinationID
+        autoConnect = savedMIDI?.autoConnect ?? false
         savePending = false
     }
 
@@ -127,8 +134,13 @@ final class AppModel {
     func setMode(_ mode: ConsoleMode) {
         guard mode != consoleMode else { return }
         switch mode {
-        case .mock: configure(link: .mock)
-        case .hardwareListen: configure(link: .hardware, allowWrite: false, allowRecall: false)
+        case .mock:
+            autoConnectPaused = true
+            configure(link: .mock)
+        case .hardwareListen:
+            autoConnectPaused = false
+            configure(link: .hardware, allowWrite: false, allowRecall: false)
+            attemptAutomaticConnection(force: true)
         case .hardwareSend: configure(link: .hardware, allowWrite: true)
         }
     }
@@ -169,15 +181,57 @@ final class AppModel {
     }
 
     func refreshEndpoints() {
+        guard midiAccess else { return }
+        if setupObserver == nil {
+            setupObserver = try? XTouchOneMIDISetupObserver(clientName: "XTouchOneApp Catalogue") { [weak self] in
+                DispatchQueue.main.async { [weak self] in self?.catalogueChanged() }
+            }
+        }
         sources = XTouchOneMIDIEndpoint.all(.source)
         destinations = XTouchOneMIDIEndpoint.all(.destination)
     }
 
+    private func catalogueChanged() {
+        guard link == .hardware || (autoConnect && !autoConnectPaused) else { return }
+        setupChanged()
+        attemptAutomaticConnection()
+    }
+
+    func setAutoConnect(_ enabled: Bool) {
+        autoConnect = enabled
+        autoConnectPaused = false
+        savePending = true
+        if enabled { attemptAutomaticConnection(force: true) }
+    }
+
+    func resumeAutomaticConnection() {
+        autoConnectPaused = false
+        attemptAutomaticConnection(force: true)
+    }
+
+    private func attemptAutomaticConnection(force: Bool = false) {
+        guard midiAccess, autoConnect, !autoConnectPaused, !isConnected || link == .mock,
+              consoleMode != .hardwareSend, force || now - lastAutomaticProbe >= 1 else { return }
+        lastAutomaticProbe = now
+        refreshEndpoints()
+        let candidates = sources.filter { $0.isXTouchOne && !$0.isOffline }.map(\.uniqueID)
+        guard let selected = XTouchOneAutoConnection.selectInput(preferred: sourceID, online: candidates) else { return }
+        if link == .mock { configure(link: .hardware, allowWrite: false, allowRecall: false) }
+        sourceID = selected
+        openInput()
+    }
+
     /// Opens an input port and, with write permission, the selected output port. Opening sends nothing.
     func connect() {
+        autoConnectPaused = false
+        openInput()
+    }
+
+    private func openInput() {
+        guard midiAccess else { return }
         guard link == .hardware, !isConnected else { return }
         guard let source = sources.first(where: { $0.uniqueID == sourceID && !$0.isOffline }) else {
-            disconnect()
+            disconnectHardware()
             lastError = "所选 MIDI 输入端点当前离线。"
             return
         }
@@ -206,12 +260,17 @@ final class AppModel {
         }
         if lastError != nil {
             let error = lastError
-            disconnect()
+            disconnectHardware()
             lastError = error
         }
     }
 
     func disconnect() {
+        autoConnectPaused = true
+        disconnectHardware()
+    }
+
+    private func disconnectHardware() {
         closeConnection()
         if allowWrite || allowRecall { configure(allowWrite: false, allowRecall: false) }
     }
@@ -225,7 +284,7 @@ final class AppModel {
 
     private func setupChanged() {
         refreshEndpoints()
-        if input?.isCurrent != true || output?.isCurrent == false { disconnect() }
+        if link == .hardware, isConnected, input?.isCurrent != true || output?.isCurrent == false { disconnectHardware() }
     }
 
     private func received(_ message: [UInt8]) {
@@ -295,6 +354,7 @@ final class AppModel {
 
     func tick() {
         blink.toggle()
+        attemptAutomaticConnection()
         if console.agents != nil { attempt { try console.advanceAgents(at: now) } }
         if !console.session.queuedDisplayTargets.isEmpty { flush() }
         if savePending, now - lastSaveAt >= 1 { saveWorkspace() }
@@ -381,7 +441,8 @@ final class AppModel {
         do {
             try workspaceStore.save(SavedWorkspace(configuration: workspace.configuration, values: workspace.values,
                 library: configurationLibrary, midi: .init(mode: mode.rawValue, channel: channel,
-                                                          sourceID: sourceID, destinationID: destinationID)))
+                                                          sourceID: sourceID, destinationID: destinationID,
+                                                          autoConnect: autoConnect)))
             savePending = false
             storageError = nil
         } catch {

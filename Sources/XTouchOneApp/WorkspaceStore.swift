@@ -17,6 +17,7 @@ struct MIDISelection: Codable {
     let channel: UInt8
     let sourceID: Int32?
     let destinationID: Int32?
+    var autoConnect: Bool?
 
     func profile() throws -> XTouchOneMIDIProfile {
         guard let mode = XTouchOneMIDIMode(rawValue: mode), sourceID != 0, destinationID != 0 else {

@@ -176,6 +176,12 @@ struct ConnectionSettingsView: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 SectionTitle("实体端点", icon: "cable.connector")
+                Toggle("自动连接（只监听）", isOn: Binding(get: { model.autoConnect }, set: model.setAutoConnect))
+                    .accessibilityIdentifier("settings.autoConnect")
+                if model.autoConnect && model.autoConnectPaused {
+                    Button("恢复自动连接") { model.resumeAutomaticConnection() }
+                        .accessibilityIdentifier("settings.resumeAutoConnect")
+                }
                 Picker("输入", selection: $model.sourceID) {
                     Text("未选择").tag(Int32?.none)
                     if let id = model.sourceID, !model.sources.contains(where: { $0.uniqueID == id }) {
@@ -205,7 +211,8 @@ struct ConnectionSettingsView: View {
                     .disabled(model.consoleMode != .hardwareSend)
                     .accessibilityIdentifier("settings.allowRecall")
                 Text(model.link == .hardware ? "连接本身不发送任何字节。电机召回只在“允许发送”下可以打开。"
-                    : "先在顶部切到 Hardware，才能连接实体端点。")
+                    : model.autoConnect && !model.autoConnectPaused ? "找到设备后将进入只监听。"
+                    : "先在顶部切到 Hardware，才能手动连接实体端点。")
                     .font(.caption2).foregroundStyle(.secondary)
             }
             .panelStyle()

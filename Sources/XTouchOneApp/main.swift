@@ -109,7 +109,7 @@ private func snapshotSize(arguments: [String]) throws -> NSSize {
 @MainActor
 func writeSnapshot(to path: String, arguments: [String]) throws {
     let size = try snapshotSize(arguments: arguments)
-    let model = AppModel()
+    let model = AppModel(midiAccess: false)
     if arguments.contains("--sample") { model.loadSampleScene() }
     if arguments.contains("--hardware") { model.setMode(.hardwareListen) }
     if let flag = arguments.firstIndex(of: "--tab"), flag + 1 < arguments.count, let tab = WorkspaceTab(rawValue: arguments[flag + 1]) {

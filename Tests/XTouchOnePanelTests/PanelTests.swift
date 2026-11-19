@@ -74,6 +74,46 @@ struct PanelTests {
         #expect(console.shown.buttonLEDs.isEmpty, "without the demo links input changes no display")
     }
 
+    @Test func jogClearResetsOnlyTheReadoutWhenListening() throws {
+        var console = try console(.hardware, output: .observe, demo: false)
+        try console.attach(route, at: 0)
+        try console.receive([0xB0, 70, 44], at: 1)
+        try console.receive([0xB0, 88, 65], at: 1)
+        #expect(console.jogTicks == 1)
+        try console.resetJog(at: 2, updateDisplay: false)
+        try console.pump(at: 2) { _ in Issue.record("observe mode sent bytes"); return .accepted }
+        #expect(console.jogTicks == 0 && console.jogStep == 0 && console.faderPosition == 44)
+        #expect(console.shown.segments == nil)
+    }
+
+    @Test func jogClearAndStopSendTheSameZeroAndTheNextStepStartsFromZero() throws {
+        var console = try console(.hardware, mode: .midiRelative, demo: false)
+        try console.attach(route, at: 0)
+        try console.setJogDisplayLinked(true, at: 1)
+        var transmitted: [[UInt8]] = []
+        func write(_ bytes: [UInt8]) -> FeedbackAttemptResult { transmitted.append(bytes); return .accepted }
+        try console.pump(at: 1, write: write)
+        let zero = try #require(transmitted.last)
+        #expect(Array(zero[6..<18]) == [0, 0x3F, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x3F])
+
+        try console.receive([0xB0, 88, 65], at: 2)
+        try console.pump(at: 2, write: write)
+        try console.setJogDisplayLinked(false, at: 3)
+        try console.resetJog(at: 3, updateDisplay: true)
+        try console.pump(at: 3, write: write)
+        #expect(console.jogTicks == 0 && console.jogDisplayLinked && transmitted.last == zero)
+
+        try console.receive([0xB0, 88, 1], at: 4)
+        try console.pump(at: 4, write: write)
+        #expect(console.jogTicks == -1 && console.jogStep == -1)
+        try console.receive([0x90, 22, 127], at: 5)
+        try console.pump(at: 5, write: write)
+        #expect(console.jogTicks == 0 && console.jogStep == 0 && transmitted.last == zero)
+        try console.receive([0x90, 22, 0], at: 6)
+        try console.receive([0xB0, 88, 65], at: 6)
+        #expect(console.jogTicks == 1 && console.jogDisplayLinked)
+    }
+
     @Test func theHardwareLinkIgnoresPanelGesturesAndShowsOnlyAcceptedSends() throws {
         var console = try console(.hardware, demo: false)
         try console.operate(.button(1, pressed: true), at: 0)

@@ -72,6 +72,7 @@ final class AppModel {
 
     var now: Double { ProcessInfo.processInfo.systemUptime }
     var isConnected: Bool { console.session.isConnected }
+    var canWriteDisplay: Bool { link == .mock || (allowWrite && isConnected && output != nil) }
     var demoLinks: Bool {
         get { console.demoLinks }
         set { console.demoLinks = newValue }
@@ -212,6 +213,17 @@ final class AppModel {
     }
 
     func showSegments() { show(XTouchOneSegmentFont.display(assignment: assignment, counter: counter)) }
+
+    func setJogDisplayLinked(_ linked: Bool) {
+        guard !linked || canWriteDisplay else { return }
+        attempt { try console.setJogDisplayLinked(linked, at: now) }
+        flush()
+    }
+
+    func resetJog() {
+        attempt { try console.resetJog(at: now, updateDisplay: canWriteDisplay) }
+        flush()
+    }
 
     func recall() {
         attempt { try console.recallFader(to: UInt8(recallTarget), at: now, write: transport) }

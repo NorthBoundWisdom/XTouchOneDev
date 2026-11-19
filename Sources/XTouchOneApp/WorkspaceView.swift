@@ -161,7 +161,10 @@ private struct ValueListView: View {
                     ValueRow(badge: "JOG", title: "拨轮", selected: model.selection == .jog, onSelect: { model.selection = .jog }) {
                         Text("相对，每格 ±1").font(.caption).foregroundStyle(.secondary)
                         Spacer()
-                        ValueText(text: "\(model.console.jogTicks)", color: Theme.observed)
+                        ValueText(text: "\(model.console.jogTicks)", color: Theme.observed).accessibilityIdentifier("values.jogCount")
+                        Button("清零") { model.resetJog() }
+                            .help("清零拨轮累计。允许发送时，同时同步数码管。")
+                            .accessibilityIdentifier("values.resetJog")
                     }
                 }
             }

@@ -70,8 +70,15 @@ struct ControlInspectorView: View {
         case .jog:
             VStack(alignment: .leading, spacing: 10) {
                 SectionTitle("拨轮", icon: "circle.dashed")
-                Readout(title: "输入累计", value: "\(model.console.jogTicks)", color: Theme.observed)
-                Text("拨轮只有输入，没有任何显示或反馈地址。").font(.caption2).foregroundStyle(.secondary)
+                HStack(spacing: 16) {
+                    Readout(title: "输入累计", value: "\(model.console.jogTicks)", color: Theme.observed)
+                        .accessibilityIdentifier("inspector.jogCount")
+                    Button("清零") { model.resetJog() }.accessibilityIdentifier("inspector.resetJog")
+                }
+                Toggle("同步数码管", isOn: Binding(get: { model.console.jogDisplayLinked }, set: { model.setJogDisplayLinked($0) }))
+                    .disabled(!model.canWriteDisplay)
+                    .accessibilityIdentifier("inspector.jogDisplay")
+                    .help("同步后，数码管左侧显示最后一步，右侧显示累计，STOP 键也可清零。")
             }
             .insetStyle()
         case .meter:

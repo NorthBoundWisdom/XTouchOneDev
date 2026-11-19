@@ -40,6 +40,8 @@ public struct XTouchOneConsole: Sendable {
     public private(set) var shown: XTouchOneSimulatedDevice
     public private(set) var pressed: Set<String> = []
     public private(set) var jogTicks = 0
+    public private(set) var jogStep = 0
+    public private(set) var jogDisplayLinked = false
     public private(set) var encoderTicks = 0
     /// The mock fader's physical position. The hardware link has no such knowledge.
     public private(set) var mockFader: UInt8 = 0
@@ -90,6 +92,7 @@ public struct XTouchOneConsole: Sendable {
     private mutating func resetGeneration(at: Double, _ text: String) {
         pressed.removeAll()
         lit.removeAll()
+        jogDisplayLinked = false
         if link == .hardware { shown = XTouchOneSimulatedDevice(mode: session.profile.mode, channel: session.profile.channel) }
         note(text, at: at)
     }
@@ -121,10 +124,18 @@ public struct XTouchOneConsole: Sendable {
         case .event(let event):
             append(.input, message, "\(event.elementID) \(event.kind.rawValue) \(Self.describe(event.value))", at)
             switch (event.kind, event.value) {
-            case (.press, _): pressed.insert(event.elementID)
+            case (.press, _):
+                pressed.insert(event.elementID)
+                if jogDisplayLinked, event.elementID == "button.22" { try resetJog(at: at, updateDisplay: true) }
             case (.release, _): pressed.remove(event.elementID)
             case (.relative, .number(let delta)):
-                if event.elementID == "jog" { jogTicks += Int(delta) } else { encoderTicks += Int(delta) }
+                if event.elementID == "jog" {
+                    jogStep = Int(delta)
+                    jogTicks += jogStep
+                    if jogDisplayLinked { try request(jogDisplay, at: at) }
+                } else {
+                    encoderTicks += Int(delta)
+                }
             case (.absolute, .number(let value)) where event.elementID == "encoder.turn": encoderTicks = Int(value)
             default: break
             }
@@ -146,13 +157,30 @@ public struct XTouchOneConsole: Sendable {
         case ("fader", .absolute, .number(let value)):
             try request(.meter(UInt8(value)), at: at)
             try request(.lcd(upper: "Fader", lower: String(Int(value)), color: .cyan, invertUpper: true, invertLower: false), at: at)
-        case ("jog", .relative, _):
+        case ("jog", .relative, _) where !jogDisplayLinked:
             try request(XTouchOneSegmentFont.display(assignment: "Jo", counter: String(jogTicks)), at: at)
         default: break
         }
     }
 
     // MARK: Output
+
+    private var jogDisplay: XTouchOneDisplay {
+        let step = jogStep < 0 ? String(jogStep) : " \(jogStep)"
+        return XTouchOneSegmentFont.display(assignment: step, counter: String(jogTicks))
+    }
+
+    public mutating func setJogDisplayLinked(_ linked: Bool, at: Double) throws {
+        guard linked else { jogDisplayLinked = false; return }
+        if case .refused = try request(jogDisplay, at: at) { return }
+        jogDisplayLinked = true
+    }
+
+    public mutating func resetJog(at: Double, updateDisplay: Bool) throws {
+        jogTicks = 0
+        jogStep = 0
+        if updateDisplay { try setJogDisplayLinked(true, at: at) }
+    }
 
     /// Queues a local repaint. A refusal is logged and returned.
     @discardableResult

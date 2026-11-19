@@ -10,7 +10,7 @@ import XTouchOneCoreMIDI
 
 let usage = """
 usage:
-  xtouch-one-monitor list
+  xtouch-one-monitor list [--json]
   xtouch-one-monitor probe  --input <unique-id> [--seconds <n>]
   xtouch-one-monitor record --input <unique-id> --mode <Midi|MidiRel|CChg|CChgRel> --channel <1-16>
                             --source <hardware|simulation> --out <capture.jsonl>
@@ -20,9 +20,13 @@ usage:
                             led <0-34> <off|flash|on> | ring <0-127> | meter <0-127>
                             lcd <upper> <lower> [color] [--invert-upper] [--invert-lower]
                             segments <24 hex digits> [<dots-low-hex> <dots-high-hex>]
+  xtouch-one-monitor session --source simulation --mode <mode> --channel <1-16>
+  xtouch-one-monitor session --source hardware   --mode <mode> --channel <1-16>
+                             --input <unique-id> [--output <unique-id> --write]
 
 list, probe and record never send. probe observes for 10 seconds by default.
 show requires both endpoints with --write and sends one display message.
+session accepts newline-delimited JSON on standard input and responds on standard output.
 """
 
 func fail(_ message: String) -> Never {
@@ -97,6 +101,11 @@ func duration(_ options: [String: String]) -> Double? {
 
 func hex(_ bytes: [UInt8]) -> String {
     bytes.map { ($0 < 16 ? "0" : "") + String($0, radix: 16, uppercase: true) }.joined(separator: " ")
+}
+
+func listJSON() throws {
+    let endpoints = ["sources": XTouchOneMIDIEndpoint.all(.source), "destinations": XTouchOneMIDIEndpoint.all(.destination)]
+    print(try XTouchOneCapture.line(endpoints))
 }
 
 func list() {
@@ -242,37 +251,37 @@ final class Stop: @unchecked Sendable {
     func set() { lock.withLock { value = true } }
 }
 
-func display(_ words: [String], invertUpper: Bool, invertLower: Bool) -> XTouchOneDisplay {
-    guard words.first == "lcd" || (!invertUpper && !invertLower) else { fail("inversion flags require lcd") }
-    func value(_ index: Int) -> UInt8 {
-        guard index < words.count, let value = UInt8(words[index]), value < 128 else { fail(usage) }
+func display(_ words: [String], invertUpper: Bool, invertLower: Bool) throws -> XTouchOneDisplay {
+    guard words.first == "lcd" || (!invertUpper && !invertLower) else { throw ControlError.invalidArguments("inversion flags require lcd") }
+    func value(_ index: Int) throws -> UInt8 {
+        guard index < words.count, let value = UInt8(words[index]), value < 128 else { throw ControlError.invalidArguments("invalid display arguments") }
         return value
     }
     switch words.first {
     case "led":
         let states: [String: XTouchOneButtonLED] = ["off": .off, "flash": .flash, "on": .on]
-        guard words.count == 3, let button = XTouchOneButton(rawValue: value(1)), let state = states[words[2]] else { fail(usage) }
+        guard words.count == 3, let button = XTouchOneButton(rawValue: try value(1)), let state = states[words[2]] else { throw ControlError.invalidArguments("invalid display arguments") }
         return .buttonLED(button, state)
-    case "ring" where words.count == 2: return .encoderRing(value(1))
-    case "meter" where words.count == 2: return .meter(value(1))
+    case "ring" where words.count == 2: return .encoderRing(try value(1))
+    case "meter" where words.count == 2: return .meter(try value(1))
     case "lcd" where words.count == 3 || words.count == 4:
         let colors: [String: XTouchOneLCDColor] = ["black": .black, "red": .red, "green": .green, "yellow": .yellow,
                                                    "blue": .blue, "magenta": .magenta, "cyan": .cyan, "white": .white]
-        guard let color = colors[words.count == 4 ? words[3] : "white"] else { fail(usage) }
+        guard let color = colors[words.count == 4 ? words[3] : "white"] else { throw ControlError.invalidArguments("invalid display arguments") }
         return .lcd(upper: words[1], lower: words[2], color: color, invertUpper: invertUpper, invertLower: invertLower)
     case "segments" where words.count == 2 || words.count == 4:
         let digits = Array(words[1].utf8)
-        guard digits.count == 24 else { fail("segments requires exactly 12 hexadecimal segment masks") }
-        func mask(_ digits: ArraySlice<UInt8>, maximum: UInt8) -> UInt8 {
+        guard digits.count == 24 else { throw ControlError.invalidArguments("segments requires exactly 12 hexadecimal segment masks") }
+        func mask(_ digits: ArraySlice<UInt8>, maximum: UInt8) throws -> UInt8 {
             guard digits.count == 2, digits.first != UInt8(ascii: "+"), digits.first != UInt8(ascii: "-"),
-                  let value = UInt8(String(decoding: digits, as: UTF8.self), radix: 16), value <= maximum else { fail(usage) }
+                  let value = UInt8(String(decoding: digits, as: UTF8.self), radix: 16), value <= maximum else { throw ControlError.invalidArguments("invalid display arguments") }
             return value
         }
-        let segments = stride(from: 0, to: digits.count, by: 2).map { mask(digits[$0..<($0 + 2)], maximum: 0x7F) }
-        let dotsLow = words.count == 4 ? mask(Array(words[2].utf8)[...], maximum: 0x7F) : 0
-        let dotsHigh = words.count == 4 ? mask(Array(words[3].utf8)[...], maximum: 0x1F) : 0
+        let segments = try stride(from: 0, to: digits.count, by: 2).map { try mask(digits[$0..<($0 + 2)], maximum: 0x7F) }
+        let dotsLow = words.count == 4 ? try mask(Array(words[2].utf8)[...], maximum: 0x7F) : 0
+        let dotsHigh = words.count == 4 ? try mask(Array(words[3].utf8)[...], maximum: 0x1F) : 0
         return .segmentDisplay(segments: segments, dotsLow: dotsLow, dotsHigh: dotsHigh)
-    default: fail(usage)
+    default: throw ControlError.invalidArguments("invalid display arguments")
     }
 }
 
@@ -280,7 +289,7 @@ func show(_ arguments: [String]) throws {
     let (options, flags, rest) = parse(arguments, options: ["--input", "--output", "--mode", "--channel", "--source"],
                                       flags: ["--write", "--invert-upper", "--invert-lower"])
     let selection = Selection(options)
-    let request = display(rest, invertUpper: flags.contains("--invert-upper"), invertLower: flags.contains("--invert-lower"))
+    let request = try display(rest, invertUpper: flags.contains("--invert-upper"), invertLower: flags.contains("--invert-lower"))
     let inputID = options["--input"].map { _ in endpointID(options, "--input") }
     let outputID = options["--output"].map { _ in endpointID(options, "--output") }
     print("message: \(hex(try selection.profile.encodeDisplay(request))) for \(request.targetID)")
@@ -315,9 +324,11 @@ let arguments = Array(CommandLine.arguments.dropFirst())
 do {
     switch arguments.first {
     case "list" where arguments.count == 1: list()
+    case "list" where arguments == ["list", "--json"]: try listJSON()
     case "probe": try probe(Array(arguments.dropFirst()))
     case "record": try record(Array(arguments.dropFirst()))
     case "show": try show(Array(arguments.dropFirst()))
+    case "session": try runControlSession(Array(arguments.dropFirst()))
     default: fail(usage)
     }
 } catch {

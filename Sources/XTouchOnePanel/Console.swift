@@ -19,15 +19,19 @@ public struct XTouchOneConsole: Sendable {
     public enum Link: Equatable, Sendable { case mock, hardware }
 
     public struct Entry: Identifiable, Equatable, Sendable {
-        public enum Kind: Equatable, Sendable { case input, output, note }
+        public enum Kind: String, Equatable, Sendable { case input, output, note }
         public let id: Int
         public let at: Double
+        public let generation: UInt64
         public let kind: Kind
         public let bytes: [UInt8]
         public let text: String
+        public let result: FeedbackAttemptResult?
     }
 
     public static let logLimit = 200
+    /// Placeholder for hardware display traffic until the real transport budget is measured.
+    public static let hardwareDisplayRate = FeedbackQueueRate.bucket(perSecond: 50, burst: 10, failureCooldown: 1)
     static let mockRoute = try! XTouchOneRoute(inputID: "mock-in", outputID: "mock-out", transportOrigin: .localVirtual)
 
     public let link: Link
@@ -158,6 +162,8 @@ public struct XTouchOneConsole: Sendable {
         return outcome
     }
 
+    public mutating func withdrawDisplay() { session.withdrawDisplay(from: .local) }
+
     /// Sends what the rate allows. `write` is the transport; the mock link delivers to its model device.
     public mutating func pump(at: Double, write: (([UInt8]) -> FeedbackAttemptResult)? = nil) throws {
         for send in try session.drainDisplay(at: at) { try deliver(send, at: at, write: write) }
@@ -189,15 +195,16 @@ public struct XTouchOneConsole: Sendable {
         }
         _ = try session.complete(send, result: result, at: at)
         if result.successfulSend { shown.receive(send.bytes) }
-        append(.output, send.bytes, "\(send.targetID) \(result)", at)
+        append(.output, send.bytes, "\(send.targetID) \(result)", at, result: result)
         return result.successfulSend
     }
 
     public mutating func note(_ text: String, at: Double) { append(.note, [], text, at) }
 
-    private mutating func append(_ kind: Entry.Kind, _ bytes: [UInt8], _ text: String, _ at: Double) {
+    private mutating func append(_ kind: Entry.Kind, _ bytes: [UInt8], _ text: String, _ at: Double,
+                                 result: FeedbackAttemptResult? = nil) {
         nextEntry += 1
-        log.append(Entry(id: nextEntry, at: at, kind: kind, bytes: bytes, text: text))
+        log.append(Entry(id: nextEntry, at: at, generation: session.generation, kind: kind, bytes: bytes, text: text, result: result))
         if log.count > Self.logLimit { log.removeFirst(log.count - Self.logLimit) }
     }
 

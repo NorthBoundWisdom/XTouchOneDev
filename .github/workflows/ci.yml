@@ -19,7 +19,9 @@ jobs:
           python3 -B configs/control_surface_kit_dependency.py ensure
           python3 -B configs/surface_plugins_dependency.py ensure
       - name: Run tests
-        run: swift test --scratch-path build/swiftpm
+        run: |
+          swift test --scratch-path build/swiftpm
+          python3 -B configs/check_control_session.py
       - name: Enforce 300-second push budget
         if: success() && github.event_name == 'push'
         env:

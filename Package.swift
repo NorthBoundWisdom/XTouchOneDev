@@ -59,7 +59,7 @@ let package = Package(
                           dependencies: ["XTouchOneAdapter", "XTouchOnePanel", "XTouchOneCoreMIDI", "XTouchOneSimulator"] + kit),
         .target(name: "XTouchOneCoreMIDI"),
         .executableTarget(name: "xtouch-one-monitor",
-                          dependencies: ["XTouchOneAdapter", "XTouchOneCapture", "XTouchOneCoreMIDI"] + kit),
+                          dependencies: ["XTouchOneAdapter", "XTouchOneCapture", "XTouchOneCoreMIDI", "XTouchOnePanel"] + kit),
         .testTarget(name: "XTouchOneCoreMIDITests", dependencies: ["XTouchOneCoreMIDI"]),
         .executableTarget(name: "xtouch-one-review", dependencies: ["XTouchOneCapture"]),
         .testTarget(name: "XTouchOneCaptureTests", dependencies: ["XTouchOneAdapter", "XTouchOneCapture", "XTouchOneSimulator"]),

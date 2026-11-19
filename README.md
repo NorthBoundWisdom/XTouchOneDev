@@ -1,6 +1,6 @@
 # XTouchOneDev
 
-AstroController 的 Behringer X-Touch One 设备适配器，使用 ControlSurfaceKit 的中性设备合同和 SurfacePlugins 的控制合同。macOS 已识别实体设备的 CoreMIDI 输入和输出端点，协议行为仍待实机采样。协议依据是 [Behringer MIDI Mode Implementation](https://cdn.mediavalet.com/aunsw/musictribe/g9onGOWczEOY5jIl8xEyXw/ORt6XQvz_0Kn62IYtEmkRQ/Original/Document_BE_X-TOUCH-ONE-MIDI-Mode-Implementation.pdf) 和 [Quick Start Guide](https://cdn.mediavalet.com/aunsw/musictribe/vLVIKV3wOkCX1u1NKTU4AA/_6iHaVpROESvWvldLUtf-Q/Original/QSG_BE_0808-AAG_X-TOUCH%20ONE_WW.pdf) 的 MIDI 模式表。
+AstroController 的 Behringer X-Touch One 设备适配器，使用 ControlSurfaceKit 的中性设备合同和 SurfacePlugins 的控制合同。`Midi` 和 `MidiRel` 已在 macOS 实机采样。协议依据是 [Behringer MIDI Mode Implementation](https://cdn.mediavalet.com/aunsw/musictribe/g9onGOWczEOY5jIl8xEyXw/ORt6XQvz_0Kn62IYtEmkRQ/Original/Document_BE_X-TOUCH-ONE-MIDI-Mode-Implementation.pdf) 和 [Quick Start Guide](https://cdn.mediavalet.com/aunsw/musictribe/vLVIKV3wOkCX1u1NKTU4AA/_6iHaVpROESvWvldLUtf-Q/Original/QSG_BE_0808-AAG_X-TOUCH%20ONE_WW.pdf) 的 MIDI 模式表。
 
 ## 构建与测试
 
@@ -92,7 +92,7 @@ swift test --scratch-path build/swiftpm
 - **模拟设备**（启动时的来源）：在面板上点按键、拖推子、上下拖编码器、绕圈拖拨轮，都会经文档模型产生设备字节，再走会话解码。“演示联动”打开时，按键切换自己的灯，编码器带灯环，推子带电平表和 LCD，拨轮带数码管计数。这些显示全部走正常的显示路径。按键上右键、“按键灯”标签或检查器都可以单独设置灯的状态。
 - **实体端点**：选择输入端点后连接，默认只打开输入端口。面板显示设备报告的按键、推子位置和触摸；推子位置未知时画虚线推子帽。顶部的“允许发送”和设置里的“允许电机召回”是两个单独的开关，缺省都关。所用端点掉线或被替换时，应用断开并恢复只监听，需要显式重连。面板用传输已接受的发送内容绘制灯和显示。实体来源下面板上的点击不产生任何输入。
 - 改来源、模式、通道或任一开关都会新建会话，之前的排队显示和观察不保留。
-- 按键上的小数字是地址。地址与面板按键的对应（`XTouchOnePanelLayout`）来自 Behringer 的贴纸模板：编码器按压是 0，CHANNEL 行 1–6，FUNCTION 行 7–12，TRANSPORT 上排 13–19，走带键 20–24，FADER BANK 25–26，CHANNEL 27–28，SCRUB 29，方向键上 30、左 31、中 32、右 33、下 34。数码管段位顺序按 MIDI 模式文档。两者都还没有在实机上确认。
+- 按键上的小数字是地址。地址与面板按键的对应（`XTouchOnePanelLayout`）来自 Behringer 的贴纸模板：编码器按压是 0，CHANNEL 行 1–6，FUNCTION 行 7–12，TRANSPORT 上排 13–19，走带键 20–24，FADER BANK 25–26，CHANNEL 27–28，SCRUB 29，方向键上 30、左 31、中 32、右 33、下 34。数码管段位顺序按 MIDI 模式文档。`Midi` 和 `MidiRel` 实机采样均收到全部 35 个按钮地址，`MidiRel` 实机已目视核对数码管测试图样。
 - `XTouchOneApp --snapshot <png> [--sample] [--tab values|lights|monitor] [--hardware] [--size <宽>x<高>]` 在屏幕外排版整个窗口，写一张图后退出，不显示窗口，也不打开 MIDI 端点。宽高为正整数，每边上限 8192，总面积上限 16777216 平方点。
 
 实体来源的显示速率用了一个保守的占位值（每秒 50 条），不是经过验证的设备预算。
@@ -112,6 +112,32 @@ swift run --scratch-path build/swiftpm xtouch-one-review --require-complete capt
 - `show` 默认预览编码后的字节。加 `--write --input <id> --output <id>` 后，经会话门禁向输出端点发送一条显示报文。支持按钮灯、灯环、电平表、LCD 和数码管。LCD 命令接受 `--invert-upper` 和 `--invert-lower`。数码管使用 `segments 3F065B4F666D7D077F6F0000 01 10`，先写连续的 12 个十六进制段码字节，再写可选的两个十六进制点掩码。
 - `xtouch-one-review` 离线读取录制文件，报告覆盖缺项、其他通道、未识别报文、每代首批报文和首包延时、序号与时间异常，以及输出方向所有通道中的电机目标数。加 `--require-complete` 时不完整则退出码为 1。
 
+### 本机 JSON 接口
+
+`xtouch-one-monitor list --json` 返回 `sources`、`destinations` 和各端点的 CoreMIDI ID。启动 `session` 后，一行请求对应一行响应。请求含字符串 `id` 和 `op`，响应回传 `id`、`ok`，以及 `result` 或 `error`。日志与错误诊断分开，标准输出用于 JSON。
+
+```sh
+printf '%s\n' \
+  '{"id":"status","op":"status"}' \
+  '{"id":"led","op":"display","args":["led","23","on"]}' \
+  '{"id":"events","op":"events","after":0}' \
+  '{"id":"quit","op":"quit"}' | \
+  build/swiftpm/debug/xtouch-one-monitor session --source simulation --mode MidiRel --channel 1
+```
+
+实体会话以 `session --source hardware --mode <mode> --channel <1-16> --input <id>` 启动，默认只读。需要显示输出时，在启动时加 `--write --output <id>`，输入与输出须由 CoreMIDI 报告为同一台 Behringer X-Touch One。输入重连后继续观察，原写入权限和排队显示在端点丢失时撤销。新的写入会话须重新指定端点。
+
+| `op` | 参数与结果 |
+| --- | --- |
+| `status` | 来源、解码模式、通道、端点、代次、连接、显示写入状态、推子观察、按住的键及事件游标。未知观察省略。 |
+| `events` | `after` 为上次游标，首次用 `0`。返回最多 200 条保留事件、当前游标和 `truncated`。输出事件含 `outcome`（`accepted`、`rejected` 或 `notAttempted`）。 |
+| `display` | `args` 使用 `show` 的位置参数。LCD 反相分别用布尔字段 `invertUpper`、`invertLower`。`queued` 表示入队，`alreadyAccepted` 表示当前代次已有同字节回执。通过 `events` 查发送结果。 |
+| `act` | 模拟会话可执行 `["button","23","true"]`、`["foot","true"]`、`["touch","false"]`、`["fader","72"]`、`["encoder","cw"]`、`["jog","ccw"]`。 |
+| `recall` | 模拟会话的电机召回。`args` 为一个 0–127 的数字字符串，仍需模拟设备报告松手。 |
+| `quit` | 结束会话，丢弃待发送显示。标准输入 EOF 同样结束会话。 |
+
+实体会话只把 CoreMIDI 端点收到的数据记为实体输入，并使用传输回执报告显示写入。`--mode` 和 `--channel` 选择应用解码方式。官方 MIDI 协议没有读取固件、切换设备模式或远程触发实体按键的命令。实体推子召回仍走面板应用中的本地确认。持续输入留档可并行运行只读的 `record`。
+
 CoreMIDI 回环测试只使用测试自己创建的虚拟端点，缺省跳过，用 `XTOUCH_ONE_COREMIDI_TESTS=1` 开启。
 
 ## 模拟设备
@@ -130,4 +156,4 @@ CoreMIDI 回环测试只使用测试自己创建的虚拟端点，缺省跳过�
 6. 显示渲染另行安排，每次用 `show --write` 发一条。由人眼确认按钮灯三种状态、灯环、电平表、LCD 两行、颜色和反相，以及数码管字形和小数点的位置。
 7. 电机行为不在采样范围内。`recallFader` 没有命令行入口，实机验证前需要单独的在场安排：先小幅、确认无手。
 
-实机证据出来之前，下列内容都只来自文档：按钮地址与面板按键的对应、触摸是否只在边沿报告、推子位置是否在电机移动时回报、初连和重连是否静默、显示吞吐上限。
+首次实机验收在 `Midi` 和 `MidiRel` 的通道 1 各覆盖 78/80 项，缺少脚踏按下和释放。已目视确认 PLAY 灯、灯环、电平表、LCD 两行反相和数码管测试图样。固件精确版本、`CChg` 和 `CChgRel`、开机和插拔的订阅前报文、受控电机召回及显示吞吐上限仍待验证。

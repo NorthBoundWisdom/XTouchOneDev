@@ -13,14 +13,15 @@ func check(_ status: OSStatus, _ operation: String) throws {
 }
 
 /// Endpoint facts as CoreMIDI reports them. Reading them sends nothing to any device.
-public struct XTouchOneMIDIEndpoint: Equatable, Sendable {
-    public enum Direction: String, Sendable { case source, destination }
+public struct XTouchOneMIDIEndpoint: Encodable, Equatable, Sendable {
+    public enum Direction: String, Encodable, Sendable { case source, destination }
 
     public let uniqueID: Int32
     public let direction: Direction
     public let name: String
     public let manufacturer: String?
     public let model: String?
+    public let deviceID: Int32?
     public let isOffline: Bool
     /// True when no device entity owns the endpoint, as for endpoints created by software.
     public let isVirtual: Bool
@@ -43,11 +44,15 @@ public struct XTouchOneMIDIEndpoint: Equatable, Sendable {
         }
         var entity = MIDIEntityRef()
         let hasEntity = MIDIEndpointGetEntity(endpoint, &entity) == noErr && entity != 0
+        var device = MIDIDeviceRef()
+        var ownerID: Int32 = 0
         uniqueID = id
         self.direction = direction
         name = string(kMIDIPropertyDisplayName) ?? string(kMIDIPropertyName) ?? ""
         manufacturer = string(kMIDIPropertyManufacturer)
         model = string(kMIDIPropertyModel)
+        deviceID = hasEntity && MIDIEntityGetDevice(entity, &device) == noErr && device != 0
+            && MIDIObjectGetIntegerProperty(device, kMIDIPropertyUniqueID, &ownerID) == noErr ? ownerID : nil
         isVirtual = !hasEntity
         isOffline = Self.offline(endpoint, entity: hasEntity ? entity : 0)
     }
@@ -149,6 +154,7 @@ public final class XTouchOneMIDISourceMonitor {
     private var presenceCheck: Task<Void, Never>?
     private var stopped = false
     public private(set) var connectionError: (any Error)?
+    public var isCurrent: Bool { binding?.input.isCurrent == true }
 
     public init(sourceUniqueID: Int32, clientName: String, event: @escaping (Event) -> Void) throws {
         sourceID = sourceUniqueID

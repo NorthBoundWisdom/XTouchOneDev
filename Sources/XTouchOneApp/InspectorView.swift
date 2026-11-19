@@ -192,7 +192,7 @@ struct ControlInspectorView: View {
             SectionTitle("MIDI 地址", icon: "arrow.left.arrow.right")
             if let input = pair.input { LabeledContent("输入 (TX)") { Text(input).font(.callout.monospaced()) } }
             if let feedback = pair.feedback { LabeledContent("反馈 (RX)") { Text(feedback).font(.callout.monospaced()) } }
-            Text("地址来自 Behringer 的 MIDI 模式文档，尚无实机证据。").font(.caption2).foregroundStyle(.secondary)
+            Text("地址来自 Behringer 的 MIDI 模式文档。").font(.caption2).foregroundStyle(.secondary)
         }
         .insetStyle()
     }
@@ -200,7 +200,7 @@ struct ControlInspectorView: View {
     @ViewBuilder
     private func notes(_ selection: PanelSelection) -> some View {
         if case .key = selection {
-            Label("地址与面板按键的对应来自 Behringer 的贴纸模板（MIDI/REL、CC/REL 页），尚未在实机上确认。", systemImage: "info.circle")
+            Label("地址与面板按键的对应来自 Behringer 的贴纸模板（MIDI/REL、CC/REL 页）。", systemImage: "info.circle")
                 .font(.caption).foregroundStyle(.secondary).insetStyle()
         }
     }

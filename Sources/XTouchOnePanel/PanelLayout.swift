@@ -17,7 +17,7 @@ public struct XTouchOnePanelKey: Identifiable, Equatable, Sendable {
 
 /// Where each panel key sits and its documented address.
 /// The addresses follow Behringer's overlay template sheets (MIDI/REL and CC/REL pages), which print the
-/// note or controller number beside every key. They are documentation, not yet confirmed on a device.
+/// note or controller number beside every key.
 public enum XTouchOnePanelLayout {
     public static let keys: [XTouchOnePanelKey] = {
         // The encoder push is address 0; the rest run left to right, top to bottom.

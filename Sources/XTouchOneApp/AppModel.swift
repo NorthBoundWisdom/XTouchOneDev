@@ -37,9 +37,6 @@ enum WorkspaceTab: String, CaseIterable, Identifiable {
 @MainActor
 @Observable
 final class AppModel {
-    /// Not a qualified device budget: a conservative placeholder until the transport is measured.
-    static let hardwareDisplayRate = FeedbackQueueRate.bucket(perSecond: 50, burst: 10, failureCooldown: 1)
-
     private(set) var console: XTouchOneConsole
     private(set) var link = XTouchOneConsole.Link.mock
     private(set) var mode = XTouchOneMIDIMode.midi
@@ -113,7 +110,7 @@ final class AppModel {
             let profile = try XTouchOneMIDIProfile(mode: self.mode, channel: self.channel)
             let mock = self.link == .mock
             console = try XTouchOneConsole(
-                link: self.link, profile: profile, displayRate: mock ? .unlimited : Self.hardwareDisplayRate,
+                link: self.link, profile: profile, displayRate: mock ? .unlimited : XTouchOneConsole.hardwareDisplayRate,
                 outputPolicy: mock || self.allowWrite ? .write : .observe,
                 mechanismPolicy: mock || self.allowRecall ? .localRecall : .disabled, demoLinks: demo)
         }

@@ -74,6 +74,34 @@ struct PanelTests {
         #expect(console.shown.buttonLEDs.isEmpty, "without the demo links input changes no display")
     }
 
+    @Test func faderTargetFollowsOnlyPhysicalTravelWhileTouched() throws {
+        var console = try console(.hardware, demo: false)
+        try console.attach(route, at: 0)
+        console.setFaderTarget(127)
+
+        try console.receive([0xB0, 70, 62], at: 1)
+        try console.receive([0x90, 110, 127], at: 2)
+        try console.receive([0xB0, 70, 62], at: 3)
+        #expect(console.faderTarget == 127)
+        try console.receive([0xB0, 70, 59], at: 4)
+        #expect(console.faderPosition == 59 && console.faderTarget == 59)
+        try console.receive([0x90, 110, 0], at: 5)
+        try console.receive([0xB0, 70, 70], at: 6)
+        #expect(console.faderPosition == 70 && console.faderTarget == 59)
+        #expect(console.log.allSatisfy { $0.kind != .output })
+    }
+
+    @Test func unknownFaderPositionDoesNotReplaceAnExplicitTargetUntilTravelIsObserved() throws {
+        var console = try console(.hardware, demo: false)
+        try console.attach(route, at: 0)
+        console.setFaderTarget(120)
+        try console.receive([0x90, 110, 127], at: 1)
+        try console.receive([0xB0, 70, 25], at: 2)
+        #expect(console.faderTarget == 120)
+        try console.receive([0xB0, 70, 27], at: 3)
+        #expect(console.faderTarget == 27)
+    }
+
     @Test func jogClearResetsOnlyTheReadoutWhenListening() throws {
         var console = try console(.hardware, output: .observe, demo: false)
         try console.attach(route, at: 0)

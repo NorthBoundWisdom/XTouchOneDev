@@ -49,6 +49,7 @@ public struct XTouchOneConsole: Sendable {
     public private(set) var encoderTicks = 0
     /// The mock fader's physical position. The hardware link has no such knowledge.
     public private(set) var mockFader: UInt8 = 0
+    public private(set) var faderTarget: UInt8
     public private(set) var log: [Entry] = []
     public var workspace: XTouchOneWorkspace
     public private(set) var agents: AgentPlugin?
@@ -61,9 +62,10 @@ public struct XTouchOneConsole: Sendable {
 
     public init(link: Link, profile: XTouchOneMIDIProfile, displayRate: FeedbackQueueRate,
                 outputPolicy: XTouchOneOutputPolicy, mechanismPolicy: XTouchOneMechanismPolicy,
-                demoLinks: Bool = true, workspace: XTouchOneWorkspace? = nil) throws {
+                demoLinks: Bool = true, workspace: XTouchOneWorkspace? = nil, faderTarget: UInt8 = 64) throws {
         self.link = link
         self.demoLinks = demoLinks
+        self.faderTarget = min(faderTarget, 127)
         self.workspace = try workspace ?? XTouchOneWorkspace()
         session = try XTouchOneSession(source: link == .mock ? .simulation : .hardware, profile: profile,
                                        displayRate: displayRate, outputPolicy: outputPolicy,
@@ -83,6 +85,8 @@ public struct XTouchOneConsole: Sendable {
         guard case .flag(let value)? = (try? session.observation(of: .faderContact, at: 0))?.value else { return nil }
         return value
     }
+
+    public mutating func setFaderTarget(_ position: UInt8) { faderTarget = min(position, 127) }
 
     // MARK: Connection (hardware link)
 
@@ -115,9 +119,7 @@ public struct XTouchOneConsole: Sendable {
         case .button(let address, let isPressed): bytes = shown.setButton(address, pressed: isPressed)
         case .footSwitch(let isPressed): bytes = shown.setFootSwitch(pressed: isPressed)
         case .touch(let touched): bytes = shown.setFaderTouched(touched)
-        case .fader(let position):
-            mockFader = min(position, 127)
-            bytes = shown.moveFader(to: mockFader)
+        case .fader(let position): bytes = shown.moveFader(to: position)
         case .encoder(let clockwise): bytes = shown.turnEncoder(clockwise: clockwise)
         case .encoderPosition(let position): bytes = shown.setEncoder(to: position)
         case .jog(let clockwise): bytes = shown.turnJog(clockwise: clockwise)
@@ -127,6 +129,7 @@ public struct XTouchOneConsole: Sendable {
 
     /// One framed message from the device, mock or real.
     public mutating func receive(_ message: [UInt8], at: Double) throws {
+        let previousPosition = faderPosition
         switch try session.receive(message, at: at) {
         case .ignored(let reason):
             append(.input, message, "\(reason)", at)
@@ -147,7 +150,14 @@ public struct XTouchOneConsole: Sendable {
                     encoderTicks += Int(delta)
                 }
             case (.absolute, .number(let value)) where event.elementID == "encoder.turn": encoderTicks = Int(value)
-            case (.absolute, .number(let value)) where event.elementID == "fader" && link == .mock: mockFader = UInt8(value)
+            case (.absolute, .number(let value)) where event.elementID == "fader":
+                let position = UInt8(value)
+                if link == .mock { mockFader = position }
+                // An unknown position gets a baseline. A repeated sample or just touching
+                // the fader must not erase a target chosen in the software.
+                if let previousPosition, previousPosition != position, link == .mock || faderTouched == true {
+                    setFaderTarget(position)
+                }
             default: break
             }
             if demoLinks { try demonstrate(event, at: at) }

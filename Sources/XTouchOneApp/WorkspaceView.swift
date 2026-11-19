@@ -159,9 +159,9 @@ private struct ValueListView: View {
                 group("输入") {
                     ValueRow(badge: "F", title: "推子", selected: model.selection == .fader, onSelect: { model.selection = .fader }) {
                         ProgressView(value: Double(model.console.faderPosition ?? 0), total: 127).tint(Theme.observed)
-                        if model.console.faderTouched == true {
-                            Text("触摸中").font(.caption2.bold()).foregroundStyle(Theme.touch)
-                        }
+                        Text("触摸中").font(.caption2.bold()).foregroundStyle(Theme.touch)
+                            .opacity(model.console.faderTouched == true ? 1 : 0)
+                            .accessibilityHidden(model.console.faderTouched != true)
                         ValueText(text: model.console.faderPosition.map { String($0) } ?? "—", color: Theme.observed)
                     }
                     ValueRow(badge: "ENC", title: "编码器", selected: model.selection == .encoder, onSelect: { model.selection = .encoder }) {

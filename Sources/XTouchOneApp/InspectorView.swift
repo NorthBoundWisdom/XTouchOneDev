@@ -141,13 +141,18 @@ struct ControlInspectorView: View {
             HStack(spacing: 8) {
                 Text("召回目标").font(.caption).foregroundStyle(.secondary)
                 Slider(value: Binding(get: { model.recallTarget }, set: { model.recallTarget = $0.rounded() }), in: 0...127).accessibilityIdentifier("inspector.recallTarget")
+                Button("发送位置") { model.recall() }
+                    .disabled(!model.canSendFaderPosition)
+                    .accessibilityIdentifier("inspector.sendFaderPosition")
             }
-            if touched != false {
-                Label(touched == true ? "推子被触摸：召回会被拒绝，松手后再试" : "触摸状态未知：先触摸并松开推子，才允许召回",
-                      systemImage: "hand.raised.fill")
-                    .font(.caption).foregroundStyle(Theme.touch)
-            }
-            Text("电机只在标题栏“电机归位…”确认后移动一次，连接、换模式和重连都不会自动移动。召回尝试之后，观察位置回到未知，等设备重新报告。")
+            Label(touched == true ? "推子被触摸：松手后再发送位置" : "触摸状态未知：先触摸并松开推子",
+                  systemImage: "hand.raised.fill")
+                .font(.caption).foregroundStyle(Theme.touch)
+                .lineLimit(1)
+                .frame(height: 18, alignment: .leading)
+                .opacity(touched == false ? 0 : 1)
+                .accessibilityHidden(touched == false)
+            Text("手动移动实体推子会同步目标。拖动左侧软件推子后松开，或点「发送位置」，都会发送一次。观察值等设备报告后更新。")
                 .font(.caption2).foregroundStyle(.secondary)
         }
         .insetStyle()

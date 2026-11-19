@@ -46,6 +46,11 @@ enum WorkspaceTab: String, CaseIterable, Identifiable {
 @MainActor
 @Observable
 final class AppModel {
+    struct FaderSendScope: Equatable {
+        let connection: UUID
+        let touchRevision: UInt64
+    }
+
     private(set) var console: XTouchOneConsole
     private(set) var link = XTouchOneConsole.Link.mock
     private(set) var mode = XTouchOneMIDIMode.midi
@@ -73,7 +78,12 @@ final class AppModel {
     var showAddresses = true
     var lcdInvertUpper = false
     var lcdInvertLower = false
-    var recallTarget = 64.0
+    var recallTarget: Double {
+        get { Double(console.faderTarget) }
+        set {
+            if newValue.isFinite { console.setFaderTarget(UInt8(min(max(newValue.rounded(), 0), 127))) }
+        }
+    }
     var lcdUpper = "Choir"
     var lcdLower = "36R"
     var lcdColor = XTouchOneLCDColor.blue
@@ -83,6 +93,7 @@ final class AppModel {
     @ObservationIgnored private var input: XTouchOneMIDIInput?
     @ObservationIgnored private var output: XTouchOneMIDIOutput?
     @ObservationIgnored private var connectionID: UUID?
+    @ObservationIgnored private var touchRevision: UInt64 = 0
     @ObservationIgnored private var setupObserver: XTouchOneMIDISetupObserver?
     @ObservationIgnored private var lastAutomaticProbe = -Double.infinity
     @ObservationIgnored private let midiAccess: Bool
@@ -124,6 +135,13 @@ final class AppModel {
     var now: Double { ProcessInfo.processInfo.systemUptime }
     var isConnected: Bool { console.session.isConnected }
     var canWriteDisplay: Bool { link == .mock || (allowWrite && isConnected && output != nil) }
+    var canSendFaderPosition: Bool {
+        canWriteDisplay && (link == .mock || allowRecall) && console.faderTouched == false
+    }
+    var hardwareFaderSendScope: FaderSendScope? {
+        guard link == .hardware, canSendFaderPosition, let connectionID else { return nil }
+        return FaderSendScope(connection: connectionID, touchRevision: touchRevision)
+    }
     var demoLinks: Bool {
         get { console.demoLinks }
         set { console.demoLinks = newValue }
@@ -167,6 +185,7 @@ final class AppModel {
         self.allowRecall = (allowRecall ?? self.allowRecall) && self.allowWrite
         let demo = console.demoLinks
         let workspace = console.workspace
+        let faderTarget = console.faderTarget
         attempt {
             let profile = try XTouchOneMIDIProfile(mode: self.mode, channel: self.channel)
             let mock = self.link == .mock
@@ -174,7 +193,7 @@ final class AppModel {
                 link: self.link, profile: profile, displayRate: mock ? .unlimited : XTouchOneConsole.hardwareDisplayRate,
                 outputPolicy: mock || self.allowWrite ? .write : .observe,
                 mechanismPolicy: mock || self.allowRecall ? .localRecall : .disabled, demoLinks: demo,
-                workspace: workspace)
+                workspace: workspace, faderTarget: faderTarget)
         }
         if self.link == .hardware { refreshEndpoints() }
         if reconnect { connect() }
@@ -290,7 +309,9 @@ final class AppModel {
     private func received(_ message: [UInt8]) {
         guard isConnected else { return }
         let previous = console.workspace.values
+        let wasTouched = console.faderTouched
         attempt { try console.receive(message, at: now) }
+        if console.faderTouched != wasTouched { touchRevision &+= 1 }
         noteInputValues(previous)
         flush()
     }
@@ -336,7 +357,13 @@ final class AppModel {
     }
 
     func recall() {
-        attempt { try console.recallFader(to: UInt8(recallTarget), at: now, write: transport) }
+        sendFaderPosition(console.faderTarget)
+    }
+
+    func sendFaderPosition(_ target: UInt8) {
+        guard canSendFaderPosition else { return }
+        console.setFaderTarget(target)
+        attempt { try console.recallFader(to: target, at: now, write: transport) }
     }
 
     /// Drains again later when the rate held something back.

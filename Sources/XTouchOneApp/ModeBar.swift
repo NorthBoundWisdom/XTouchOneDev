@@ -94,6 +94,8 @@ struct HeaderBar: View {
     @Bindable var model: AppModel
     @State private var confirmsRecall = false
     @State private var showsSettings = false
+    @State private var confirmedTarget: UInt8 = 64
+    @State private var confirmedScope: AppModel.FaderSendScope?
 
     var body: some View {
         HStack(spacing: 16) {
@@ -108,15 +110,23 @@ struct HeaderBar: View {
                 Label(error, systemImage: "xmark.octagon.fill").font(.caption).foregroundStyle(.red).lineLimit(1)
                     .accessibilityIdentifier("header.error")
             }
-            Button { confirmsRecall = true } label: {
+            Button {
+                confirmedTarget = model.console.faderTarget
+                confirmedScope = model.hardwareFaderSendScope
+                confirmsRecall = true
+            } label: {
                 Label("电机归位…", systemImage: "arrow.up.and.down.and.sparkles")
             }
             .accessibilityIdentifier("header.recall")
             .buttonStyle(BarButtonStyle())
-            .disabled(model.link == .hardware && (!model.allowRecall || !model.isConnected))
+            .disabled(model.link == .hardware && !model.canSendFaderPosition)
             .help("把电动推子移动到检查器里设定的目标值；只在你确认后执行")
-            .confirmationDialog("把推子移动到 \(Int(model.recallTarget))？", isPresented: $confirmsRecall) {
-                Button("移动电动推子") { model.recall() }
+            .confirmationDialog("把推子移动到 \(confirmedTarget)？", isPresented: $confirmsRecall) {
+                Button("移动电动推子") {
+                    if model.link == .mock || (confirmedScope != nil && confirmedScope == model.hardwareFaderSendScope) {
+                        model.sendFaderPosition(confirmedTarget)
+                    }
+                }
                 Button("取消", role: .cancel) {}
             } message: {
                 Text("连接或换模式后不会自动移动电机。需要先触摸并松开推子；触摸状态未知或正在触摸时会被拒绝。")

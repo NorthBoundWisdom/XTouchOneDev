@@ -84,11 +84,13 @@ struct XTouchOneApplication: App {
 private enum SnapshotError: LocalizedError {
     case missingOutput
     case invalidSize
+    case invalidTouch
 
     var errorDescription: String? {
         switch self {
         case .missingOutput: "--snapshot requires a PNG output path."
         case .invalidSize: "--size requires two positive integers (WIDTHxHEIGHT), up to 8192 per side and 16777216 total points."
+        case .invalidTouch: "--fader-touch requires touched, released, or unknown."
         }
     }
 }
@@ -111,6 +113,15 @@ func writeSnapshot(to path: String, arguments: [String]) throws {
     let size = try snapshotSize(arguments: arguments)
     let model = AppModel(midiAccess: false)
     if arguments.contains("--sample") { model.loadSampleScene() }
+    if let flag = arguments.firstIndex(of: "--fader-touch") {
+        guard flag + 1 < arguments.count else { throw SnapshotError.invalidTouch }
+        switch arguments[flag + 1] {
+        case "touched": model.act(.touch(true))
+        case "released": model.act(.touch(false))
+        case "unknown": break
+        default: throw SnapshotError.invalidTouch
+        }
+    }
     if arguments.contains("--hardware") { model.setMode(.hardwareListen) }
     if let flag = arguments.firstIndex(of: "--tab"), flag + 1 < arguments.count, let tab = WorkspaceTab(rawValue: arguments[flag + 1]) {
         model.tab = tab

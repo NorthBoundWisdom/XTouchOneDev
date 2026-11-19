@@ -1,6 +1,7 @@
 import Foundation
 
 #if canImport(CoreMIDI)
+import Darwin
 import SurfaceDeviceContracts
 import SurfaceFeedbackPlanning
 import XTouchOneAdapter
@@ -10,14 +11,18 @@ import XTouchOneCoreMIDI
 let usage = """
 usage:
   xtouch-one-monitor list
+  xtouch-one-monitor probe  --input <unique-id> [--seconds <n>]
   xtouch-one-monitor record --input <unique-id> --mode <Midi|MidiRel|CChg|CChgRel> --channel <1-16>
                             --source <hardware|simulation> --out <capture.jsonl>
                             [--seconds <n>] [--firmware <text>] [--note <text>]
-  xtouch-one-monitor show   --input <unique-id> --output <unique-id> --mode <mode> --channel <1-16>
-                            --source <hardware|simulation> [--write]
-                            (led <0-34> <off|flash|on> | ring <0-127> | meter <0-127> | lcd <upper> <lower> [color])
+  xtouch-one-monitor show   --mode <mode> --channel <1-16> --source <hardware|simulation>
+                            [--input <unique-id> --output <unique-id>] [--write]
+                            led <0-34> <off|flash|on> | ring <0-127> | meter <0-127>
+                            lcd <upper> <lower> [color] [--invert-upper] [--invert-lower]
+                            segments <24 hex digits> [<dots-low-hex> <dots-high-hex>]
 
-list and record never send. show sends one display message, and only with --write.
+list, probe and record never send. probe observes for 10 seconds by default.
+show requires both endpoints with --write and sends one display message.
 """
 
 func fail(_ message: String) -> Never {
@@ -26,15 +31,19 @@ func fail(_ message: String) -> Never {
 }
 
 /// Splits `--name value` options and bare flags from positional words.
-func parse(_ arguments: [String], flags: Set<String>) -> (options: [String: String], flags: Set<String>, rest: [String]) {
+func parse(_ arguments: [String], options allowed: Set<String>, flags: Set<String> = []) -> (options: [String: String], flags: Set<String>, rest: [String]) {
     var options: [String: String] = [:], seen: Set<String> = [], rest: [String] = []
     var index = 0
     while index < arguments.count {
         let word = arguments[index]
         if flags.contains(word) {
-            seen.insert(word)
+            guard seen.insert(word).inserted else { fail("duplicate flag \(word)") }
         } else if word.hasPrefix("--") {
-            guard index + 1 < arguments.count else { fail("missing value for \(word)\n\(usage)") }
+            guard allowed.contains(word) else { fail("unknown option \(word)\n\(usage)") }
+            guard options[word] == nil else { fail("duplicate option \(word)") }
+            guard index + 1 < arguments.count, !arguments[index + 1].hasPrefix("--") else {
+                fail("missing value for \(word)\n\(usage)")
+            }
             options[word] = arguments[index + 1]
             index += 1
         } else {
@@ -64,11 +73,26 @@ struct Selection {
 }
 
 func endpoint(_ options: [String: String], _ name: String, _ direction: XTouchOneMIDIEndpoint.Direction) -> XTouchOneMIDIEndpoint {
-    guard let id = options[name].flatMap({ Int32($0) }),
-          let found = XTouchOneMIDIEndpoint.all(direction).first(where: { $0.uniqueID == id }) else {
-        fail("\(name) must be the unique id of a current \(direction.rawValue); see `xtouch-one-monitor list`")
+    let id = endpointID(options, name)
+    guard let found = XTouchOneMIDIEndpoint.all(direction).first(where: { $0.uniqueID == id && !$0.isOffline }) else {
+        fail("\(name) must be the unique id of an online \(direction.rawValue); see `xtouch-one-monitor list`")
     }
     return found
+}
+
+func endpointID(_ options: [String: String], _ name: String) -> Int32 {
+    guard let id = options[name].flatMap({ Int32($0) }), id != 0 else {
+        fail("\(name) requires a nonzero signed 32-bit MIDI unique id; see `xtouch-one-monitor list`")
+    }
+    return id
+}
+
+func duration(_ options: [String: String]) -> Double? {
+    guard let raw = options["--seconds"] else { return nil }
+    guard let seconds = Double(raw), seconds.isFinite, seconds > 0 else {
+        fail("--seconds requires a finite positive number")
+    }
+    return seconds
 }
 
 func hex(_ bytes: [UInt8]) -> String {
@@ -86,94 +110,125 @@ func list() {
     }
 }
 
-/// Serializes the capture file and the session across CoreMIDI's thread and the main run loop.
-final class Recorder: @unchecked Sendable {
-    private let lock = NSLock()
+@MainActor
+final class Recorder {
     private let file: FileHandle
-    private let start = ProcessInfo.processInfo.systemUptime
-    private let route: XTouchOneRoute
-    private let sourceID: Int32
     private var session: XTouchOneSession
     private var seq = 0
 
-    init(file: FileHandle, selection: Selection, input: XTouchOneMIDIEndpoint) throws {
+    init(file: FileHandle, selection: Selection) throws {
         self.file = file
-        sourceID = input.uniqueID
-        route = try XTouchOneRoute(inputID: String(input.uniqueID), outputID: "not-opened",
-                                   transportOrigin: input.isVirtual ? .localVirtual : .physicalUSB)
-        // Observe-only: this session can decode input but refuses every output request.
         session = try XTouchOneSession(source: selection.source, profile: selection.profile, displayRate: .unlimited)
     }
 
-    private func append(_ content: XTouchOneCaptureRecord.Content) throws -> Double {
+    private func append(_ content: XTouchOneCaptureRecord.Content, at: Double) throws {
         seq += 1
-        let at = ProcessInfo.processInfo.systemUptime - start
         let record = XTouchOneCaptureRecord(seq: seq, at: at, generation: session.generation, content: content)
         try file.write(contentsOf: Data((XTouchOneCapture.line(record) + "\n").utf8))
-        return at
     }
 
-    /// Follows the source's presence. A missing or offline source ends the generation.
-    func refreshPresence() {
-        lock.withLock {
-            let present = XTouchOneMIDIEndpoint.all(.source).contains { $0.uniqueID == sourceID && !$0.isOffline }
-            guard present != session.isConnected else { return }
-            do {
-                if present {
-                    try session.attach(route)
-                    _ = try append(.connected)
-                } else {
-                    _ = try append(.disconnected)
-                    try session.detach()
-                }
-                print(present ? "connected, generation \(session.generation)" : "disconnected")
-            } catch { fail("capture failed: \(error)") }
-        }
-    }
-
-    func receive(_ message: [UInt8]) {
-        lock.withLock {
-            do {
-                let at = try append(.input(message))
-                switch try session.receive(message, at: at) {
-                case .event(let event): print("\(hex(message))  \(event.elementID) \(event.kind.rawValue) \(event.value)")
-                case .ignored(let reason): print("\(hex(message))  \(reason)")
-                }
-            } catch { fail("capture failed: \(error)") }
+    func receive(_ event: XTouchOneMIDISourceMonitor.Event, at: Double) throws {
+        switch event {
+        case .connected(let endpoint):
+            let route = try XTouchOneRoute(inputID: String(endpoint.uniqueID), outputID: "not-opened",
+                                           transportOrigin: endpoint.isVirtual ? .localVirtual : .physicalUSB)
+            try session.attach(route)
+            try append(.connected, at: at)
+            print("connected: \(endpoint.name) [\(endpoint.uniqueID)], generation \(session.generation)")
+        case .disconnected:
+            try append(.disconnected, at: at)
+            try session.detach()
+            print("disconnected")
+        case .input(let message):
+            try append(.input(message), at: at)
+            switch try session.receive(message, at: at) {
+            case .event(let event): print("\(hex(message))  \(event.elementID) \(event.kind.rawValue) \(event.value)")
+            case .ignored(let reason): print("\(hex(message))  \(reason)")
+            }
         }
     }
 }
 
-func record(_ arguments: [String]) throws {
-    let (options, _, rest) = parse(arguments, flags: [])
-    guard rest.isEmpty, let path = options["--out"] else { fail(usage) }
-    let selection = Selection(options)
-    let input = endpoint(options, "--input", .source)
-    let seconds = options["--seconds"].flatMap(Double.init)
-    guard !FileManager.default.fileExists(atPath: path) else { fail("\(path) already exists; captures are never overwritten") }
-    guard FileManager.default.createFile(atPath: path, contents: nil),
-          let file = FileHandle(forWritingAtPath: path) else { fail("cannot create \(path)") }
-
-    let header = XTouchOneCaptureHeader(mode: selection.profile.mode, channel: selection.profile.channel,
-                                        source: selection.source.rawValue, inputID: String(input.uniqueID),
-                                        inputName: input.name, firmware: options["--firmware"], note: options["--note"])
-    try file.write(contentsOf: Data((XTouchOneCapture.line(header) + "\n").utf8))
-    let recorder = try Recorder(file: file, selection: selection, input: input)
-    let listener = try XTouchOneMIDIInput(sourceUniqueID: input.uniqueID, clientName: "xtouch-one-monitor",
-                                          receive: { recorder.receive($0) }, setupChanged: { recorder.refreshPresence() })
-    recorder.refreshPresence()
-
+@MainActor
+func runMonitor(inputID: Int32, seconds: Double?,
+                receive: @escaping (Double, XTouchOneMIDISourceMonitor.Event) throws -> Void) throws -> Double {
+    let start = ProcessInfo.processInfo.systemUptime
+    let deadline = seconds.map { start + $0 } ?? .infinity
     signal(SIGINT, SIG_IGN)
     let interrupt = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
     let stopped = Stop()
     interrupt.setEventHandler { stopped.set() }
     interrupt.resume()
-    print("listening to \(input.name) [\(input.uniqueID)]; nothing is sent. Press Ctrl-C to finish.")
-    let deadline = seconds.map { Date().addingTimeInterval($0) } ?? .distantFuture
-    while !stopped.isSet, Date() < deadline {
-        RunLoop.main.run(mode: .default, before: min(deadline, Date().addingTimeInterval(0.1)))
+    defer { interrupt.cancel() }
+
+    var eventError: (any Error)?
+    print("waiting for MIDI input [\(inputID)]; nothing is sent. Press Ctrl-C to finish.")
+    let monitor = try XTouchOneMIDISourceMonitor(sourceUniqueID: inputID, clientName: "xtouch-one-monitor") { event in
+        let now = ProcessInfo.processInfo.systemUptime
+        guard now < deadline, !stopped.isSet, eventError == nil else { return }
+        do { try receive(now - start, event) } catch { eventError = error }
     }
-    withExtendedLifetime(listener) {}
+    defer { monitor.stop() }
+    while !stopped.isSet, eventError == nil, monitor.connectionError == nil {
+        let remaining = deadline - ProcessInfo.processInfo.systemUptime
+        guard remaining > 0 else { break }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: min(remaining, 0.1)))
+    }
+    if let error = eventError ?? monitor.connectionError { throw error }
+    return min(deadline, ProcessInfo.processInfo.systemUptime) - start
+}
+
+@MainActor
+func probe(_ arguments: [String]) throws {
+    let (options, _, rest) = parse(arguments, options: ["--input", "--seconds"])
+    guard rest.isEmpty else { fail(usage) }
+    let inputID = endpointID(options, "--input")
+    var connections = 0
+    var inputCount = 0
+    var connectedAt: Double?
+    var listening = 0.0
+    let elapsed = try runMonitor(inputID: inputID, seconds: duration(options) ?? 10) { at, event in
+        let time = String(format: "%.3f s", at)
+        switch event {
+        case .connected(let endpoint):
+            connections += 1
+            connectedAt = at
+            print("\(time) connected: \(endpoint.name) [\(endpoint.uniqueID)]")
+        case .disconnected:
+            if let connectedAt { listening += at - connectedAt }
+            connectedAt = nil
+            print("\(time) disconnected")
+        case .input(let message):
+            inputCount += 1
+            print("\(time)  \(hex(message))")
+        }
+    }
+    if let connectedAt { listening += elapsed - connectedAt }
+    print("observed: \(connections) connections, \(inputCount) input messages, \(String(format: "%.3f", listening)) s connected")
+}
+
+@MainActor
+func record(_ arguments: [String]) throws {
+    let (options, _, rest) = parse(arguments, options: ["--input", "--mode", "--channel", "--source", "--out", "--seconds",
+                                                        "--firmware", "--note"])
+    guard rest.isEmpty, let path = options["--out"] else { fail(usage) }
+    let selection = Selection(options)
+    let inputID = endpointID(options, "--input")
+    let seconds = duration(options)
+    let input = XTouchOneMIDIEndpoint.all(.source).first { $0.uniqueID == inputID }
+    let descriptor = open(path, O_WRONLY | O_CREAT | O_EXCL, 0o666)
+    guard descriptor >= 0 else {
+        if errno == EEXIST { fail("\(path) already exists; captures are never overwritten") }
+        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    }
+    let file = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+
+    let header = XTouchOneCaptureHeader(mode: selection.profile.mode, channel: selection.profile.channel,
+                                        source: selection.source.rawValue, inputID: String(inputID),
+                                        inputName: input?.name, firmware: options["--firmware"], note: options["--note"])
+    try file.write(contentsOf: Data((XTouchOneCapture.line(header) + "\n").utf8))
+    let recorder = try Recorder(file: file, selection: selection)
+    _ = try runMonitor(inputID: inputID, seconds: seconds) { at, event in try recorder.receive(event, at: at) }
     try file.close()
 
     let text = String(decoding: try Data(contentsOf: URL(fileURLWithPath: path)), as: UTF8.self)
@@ -187,7 +242,8 @@ final class Stop: @unchecked Sendable {
     func set() { lock.withLock { value = true } }
 }
 
-func display(_ words: [String]) -> XTouchOneDisplay {
+func display(_ words: [String], invertUpper: Bool, invertLower: Bool) -> XTouchOneDisplay {
+    guard words.first == "lcd" || (!invertUpper && !invertLower) else { fail("inversion flags require lcd") }
     func value(_ index: Int) -> UInt8 {
         guard index < words.count, let value = UInt8(words[index]), value < 128 else { fail(usage) }
         return value
@@ -203,26 +259,44 @@ func display(_ words: [String]) -> XTouchOneDisplay {
         let colors: [String: XTouchOneLCDColor] = ["black": .black, "red": .red, "green": .green, "yellow": .yellow,
                                                    "blue": .blue, "magenta": .magenta, "cyan": .cyan, "white": .white]
         guard let color = colors[words.count == 4 ? words[3] : "white"] else { fail(usage) }
-        return .lcd(upper: words[1], lower: words[2], color: color, invertUpper: false, invertLower: false)
+        return .lcd(upper: words[1], lower: words[2], color: color, invertUpper: invertUpper, invertLower: invertLower)
+    case "segments" where words.count == 2 || words.count == 4:
+        let digits = Array(words[1].utf8)
+        guard digits.count == 24 else { fail("segments requires exactly 12 hexadecimal segment masks") }
+        func mask(_ digits: ArraySlice<UInt8>, maximum: UInt8) -> UInt8 {
+            guard digits.count == 2, digits.first != UInt8(ascii: "+"), digits.first != UInt8(ascii: "-"),
+                  let value = UInt8(String(decoding: digits, as: UTF8.self), radix: 16), value <= maximum else { fail(usage) }
+            return value
+        }
+        let segments = stride(from: 0, to: digits.count, by: 2).map { mask(digits[$0..<($0 + 2)], maximum: 0x7F) }
+        let dotsLow = words.count == 4 ? mask(Array(words[2].utf8)[...], maximum: 0x7F) : 0
+        let dotsHigh = words.count == 4 ? mask(Array(words[3].utf8)[...], maximum: 0x1F) : 0
+        return .segmentDisplay(segments: segments, dotsLow: dotsLow, dotsHigh: dotsHigh)
     default: fail(usage)
     }
 }
 
 func show(_ arguments: [String]) throws {
-    let (options, flags, rest) = parse(arguments, flags: ["--write"])
+    let (options, flags, rest) = parse(arguments, options: ["--input", "--output", "--mode", "--channel", "--source"],
+                                      flags: ["--write", "--invert-upper", "--invert-lower"])
     let selection = Selection(options)
+    let request = display(rest, invertUpper: flags.contains("--invert-upper"), invertLower: flags.contains("--invert-lower"))
+    let inputID = options["--input"].map { _ in endpointID(options, "--input") }
+    let outputID = options["--output"].map { _ in endpointID(options, "--output") }
+    print("message: \(hex(try selection.profile.encodeDisplay(request))) for \(request.targetID)")
+    guard flags.contains("--write") else {
+        print("preview only: add --write and both endpoint IDs to send this one message")
+        return
+    }
+    guard inputID != nil, outputID != nil else { fail("--write requires --input and --output") }
     let input = endpoint(options, "--input", .source), output = endpoint(options, "--output", .destination)
-    let request = display(rest)
-    let policy: XTouchOneOutputPolicy = flags.contains("--write") ? .write : .observe
     var session = try XTouchOneSession(source: selection.source, profile: selection.profile, displayRate: .unlimited,
-                                       outputPolicy: policy)
+                                       outputPolicy: .write)
     try session.attach(XTouchOneRoute(inputID: String(input.uniqueID), outputID: String(output.uniqueID),
                                       transportOrigin: output.isVirtual ? .localVirtual : .physicalUSB))
     session.grantDisplay(to: .local)
-    print("message: \(hex(try selection.profile.encodeDisplay(request))) for \(request.targetID)")
     guard case .send(let send) = try session.writeDisplay(request, origin: .local) else {
-        print("not sent: add --write to send this one message to \(output.name) [\(output.uniqueID)]")
-        return
+        fail("the session refused this display request")
     }
     guard session.preflight(send) == .permitted else { fail("refused by the final gate: \(session.preflight(send))") }
     let result: FeedbackAttemptResult
@@ -241,6 +315,7 @@ let arguments = Array(CommandLine.arguments.dropFirst())
 do {
     switch arguments.first {
     case "list" where arguments.count == 1: list()
+    case "probe": try probe(Array(arguments.dropFirst()))
     case "record": try record(Array(arguments.dropFirst()))
     case "show": try show(Array(arguments.dropFirst()))
     default: fail(usage)

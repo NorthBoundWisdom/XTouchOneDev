@@ -100,4 +100,31 @@ struct CaptureTests {
             #expect(text.contains(expected), "\(expected)")
         }
     }
+
+    @Test func reconnectDoesNotInventEncoderMovementAndMotorTargetsAreCountedOnEveryChannel() throws {
+        let records: [XTouchOneCaptureRecord] = [
+            .init(seq: 1, at: 0, generation: 1, content: .connected),
+            .init(seq: 2, at: 0.5, generation: 1, content: .input([0xB0, 80, 100])),
+            .init(seq: 3, at: 1, generation: 1, content: .disconnected),
+            .init(seq: 4, at: 2, generation: 3, content: .connected),
+            .init(seq: 5, at: 2.25, generation: 3, content: .input([0xB0, 80, 0, 0xC5, 1])),
+            .init(seq: 6, at: 2.5, generation: 3, content: .input([0xB0, 80, 1])),
+            .init(seq: 7, at: 3, generation: 3, content: .output([0xBF, 70, 10])),
+        ]
+        let review = try XTouchOneCaptureReview(XTouchOneCapture(header: header(), records: records))
+        #expect(review.coverage.seen == ["encoder.turn:increase"])
+        #expect(review.coverage.otherChannels == [6] && review.motorTargetsSent == 1)
+        #expect(review.generations.map(\.connectedAt) == [0, 2])
+        #expect(review.generations.map(\.disconnectedAt) == [1, nil])
+        #expect(review.text().contains("first input 0.25 s after connection"))
+    }
+
+    @Test func anOutOfRangeSequenceGapCanBeReviewed() throws {
+        let records: [XTouchOneCaptureRecord] = [
+            .init(seq: Int.max, at: 0, generation: 1, content: .connected),
+            .init(seq: Int.min, at: 1, generation: 1, content: .disconnected),
+        ]
+        let review = try XTouchOneCaptureReview(XTouchOneCapture(header: header(), records: records))
+        #expect(review.problems == ["seq \(Int.min) follows \(Int.max)"])
+    }
 }

@@ -29,11 +29,15 @@ public struct XTouchOneInputCoverage: Equatable, Sendable {
 
     public var missing: [String] { required.filter { !seen.contains($0) } }
 
+    /// Absolute encoder direction is meaningful only between observations in one connection.
+    public mutating func beginGeneration() { lastEncoderValue = nil }
+
     public mutating func record(_ message: [UInt8]) {
         guard let input = profile.decodeInput(message) else {
             unrecognizedCount += 1
-            if message.count == 3, (0x80...0xEF).contains(message[0]), message[0] & 0x0F != profile.channel - 1 {
-                otherChannels.insert((message[0] & 0x0F) + 1)
+            if (2...3).contains(message.count), let status = message.first,
+               (0x80...0xEF).contains(status), status & 0x0F != profile.channel - 1 {
+                otherChannels.insert((status & 0x0F) + 1)
             }
             if unrecognized.count < Self.unrecognizedLimit, !unrecognized.contains(message) {
                 unrecognized.append(message)

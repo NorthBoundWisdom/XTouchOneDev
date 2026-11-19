@@ -51,14 +51,15 @@ public enum XTouchOneSegmentFont {
     public static let digitCount = 12
     public static let assignmentDigits = 2
 
-    private static let glyphs: [Character: UInt8] = [
+    private static let glyphs: [String: UInt8] = [
         "0": 0x3F, "1": 0x06, "2": 0x5B, "3": 0x4F, "4": 0x66, "5": 0x6D, "6": 0x7D, "7": 0x07, "8": 0x7F, "9": 0x6F,
         " ": 0x00, "-": 0x40, "_": 0x08, "A": 0x77, "b": 0x7C, "C": 0x39, "c": 0x58, "d": 0x5E, "E": 0x79, "F": 0x71,
         "H": 0x76, "h": 0x74, "L": 0x38, "n": 0x54, "o": 0x5C, "P": 0x73, "r": 0x50, "t": 0x78, "U": 0x3E, "u": 0x1C, "y": 0x6E,
     ]
 
     public static func mask(for character: Character) -> UInt8 {
-        glyphs[character] ?? glyphs[Character(character.uppercased())] ?? glyphs[Character(character.lowercased())] ?? 0
+        let text = String(character)
+        return glyphs[text] ?? glyphs[text.uppercased()] ?? glyphs[text.lowercased()] ?? 0
     }
 
     /// The assignment field is left aligned in the first two digits, the counter right aligned in the other ten.

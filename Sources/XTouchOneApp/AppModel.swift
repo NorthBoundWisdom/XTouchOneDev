@@ -66,6 +66,7 @@ final class AppModel {
 
     @ObservationIgnored private var input: XTouchOneMIDIInput?
     @ObservationIgnored private var output: XTouchOneMIDIOutput?
+    @ObservationIgnored private var connectionID: UUID?
 
     init() {
         console = try! XTouchOneConsole(link: .mock, profile: XTouchOneMIDIProfile(mode: .midi, channel: 1),
@@ -101,7 +102,7 @@ final class AppModel {
     func configure(link: XTouchOneConsole.Link? = nil, mode: XTouchOneMIDIMode? = nil, channel: UInt8? = nil,
                    allowWrite: Bool? = nil, allowRecall: Bool? = nil) {
         let reconnect = isConnected && (link ?? self.link) == .hardware && self.link == .hardware
-        disconnect()
+        closeConnection()
         self.link = link ?? self.link
         self.mode = mode ?? self.mode
         self.channel = channel ?? self.channel
@@ -127,26 +128,51 @@ final class AppModel {
         if !destinations.contains(where: { $0.uniqueID == destinationID }) { destinationID = nil }
     }
 
-    /// Opens the selected input for listening and, when one is selected, an output port. Opening sends nothing.
+    /// Opens an input port and, with write permission, the selected output port. Opening sends nothing.
     func connect() {
-        guard link == .hardware, let source = sources.first(where: { $0.uniqueID == sourceID }) else { return }
+        guard link == .hardware, !isConnected else { return }
+        guard let source = sources.first(where: { $0.uniqueID == sourceID && !$0.isOffline }) else {
+            disconnect()
+            lastError = "所选 MIDI 输入端点当前离线。"
+            return
+        }
         let destination = destinations.first { $0.uniqueID == destinationID }
+        let id = UUID()
         attempt {
             let route = try XTouchOneRoute(inputID: String(source.uniqueID),
                                            outputID: destination.map { String($0.uniqueID) } ?? "not-selected",
                                            transportOrigin: source.isVirtual ? .localVirtual : .physicalUSB)
             input = try XTouchOneMIDIInput(sourceUniqueID: source.uniqueID, clientName: "XTouchOneApp", receive: { [weak self] message in
-                Task { @MainActor in self?.received(message) }
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.connectionID == id else { return }
+                    self.received(message)
+                }
             }, setupChanged: { [weak self] in
-                Task { @MainActor in self?.setupChanged() }
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.connectionID == id else { return }
+                    self.setupChanged()
+                }
             })
-            output = try destination.map { try XTouchOneMIDIOutput(destinationUniqueID: $0.uniqueID, clientName: "XTouchOneApp") }
+            if allowWrite, let destination {
+                output = try XTouchOneMIDIOutput(destinationUniqueID: destination.uniqueID, clientName: "XTouchOneApp")
+            }
             try console.attach(route, at: now)
+            connectionID = id
         }
-        if lastError != nil { disconnect() }
+        if lastError != nil {
+            let error = lastError
+            disconnect()
+            lastError = error
+        }
     }
 
     func disconnect() {
+        closeConnection()
+        if allowWrite || allowRecall { configure(allowWrite: false, allowRecall: false) }
+    }
+
+    private func closeConnection() {
+        connectionID = nil
         input = nil
         output = nil
         if link == .hardware, isConnected { attempt { try console.detach(at: now) } }
@@ -154,7 +180,7 @@ final class AppModel {
 
     private func setupChanged() {
         refreshEndpoints()
-        if isConnected, sourceID == nil || sources.first(where: { $0.uniqueID == sourceID })?.isOffline == true { disconnect() }
+        if input?.isCurrent != true || output?.isCurrent == false { disconnect() }
     }
 
     private func received(_ message: [UInt8]) {
@@ -200,8 +226,9 @@ final class AppModel {
     }
 
     private var transport: (([UInt8]) -> FeedbackAttemptResult)? {
-        guard let output else { return nil }
+        guard let input, let output else { return nil }
         return { bytes in
+            guard input.isCurrent else { return .notAttempted(reason: "input endpoint is no longer online") }
             do { try output.write(bytes); return .accepted } catch { return .rejected(reason: "\(error)") }
         }
     }

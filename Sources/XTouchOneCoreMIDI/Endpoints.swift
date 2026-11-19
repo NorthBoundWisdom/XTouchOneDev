@@ -41,16 +41,26 @@ public struct XTouchOneMIDIEndpoint: Equatable, Sendable {
             guard MIDIObjectGetStringProperty(endpoint, property, &value) == noErr else { return nil }
             return value?.takeRetainedValue() as String?
         }
-        var offline: Int32 = 0
-        MIDIObjectGetIntegerProperty(endpoint, kMIDIPropertyOffline, &offline)
         var entity = MIDIEntityRef()
+        let hasEntity = MIDIEndpointGetEntity(endpoint, &entity) == noErr && entity != 0
         uniqueID = id
         self.direction = direction
         name = string(kMIDIPropertyDisplayName) ?? string(kMIDIPropertyName) ?? ""
         manufacturer = string(kMIDIPropertyManufacturer)
         model = string(kMIDIPropertyModel)
-        isOffline = offline != 0
-        isVirtual = MIDIEndpointGetEntity(endpoint, &entity) != noErr || entity == 0
+        isVirtual = !hasEntity
+        isOffline = Self.offline(endpoint, entity: hasEntity ? entity : 0)
+    }
+
+    private static func offline(_ endpoint: MIDIEndpointRef, entity: MIDIEntityRef) -> Bool {
+        func flagged(_ object: MIDIObjectRef) -> Bool {
+            var value: Int32 = 0
+            return MIDIObjectGetIntegerProperty(object, kMIDIPropertyOffline, &value) == noErr && value != 0
+        }
+        if flagged(endpoint) { return true }
+        guard entity != 0 else { return false }
+        var device = MIDIDeviceRef()
+        return flagged(entity) || (MIDIEntityGetDevice(entity, &device) == noErr && device != 0 && flagged(device))
     }
 
     static func find(_ uniqueID: Int32, _ direction: Direction) throws -> MIDIEndpointRef {
@@ -58,9 +68,11 @@ public struct XTouchOneMIDIEndpoint: Equatable, Sendable {
         for index in 0..<count {
             let endpoint = direction == .source ? MIDIGetSource(index) : MIDIGetDestination(index)
             var id: Int32 = 0
-            if MIDIObjectGetIntegerProperty(endpoint, kMIDIPropertyUniqueID, &id) == noErr, id == uniqueID {
-                return endpoint
-            }
+            guard endpoint != 0, MIDIObjectGetIntegerProperty(endpoint, kMIDIPropertyUniqueID, &id) == noErr,
+                  id == uniqueID else { continue }
+            var entity = MIDIEntityRef()
+            if MIDIEndpointGetEntity(endpoint, &entity) != noErr { entity = 0 }
+            if !offline(endpoint, entity: entity) { return endpoint }
         }
         throw XTouchOneCoreMIDIError.endpointNotFound(uniqueID)
     }
@@ -79,17 +91,25 @@ private final class ReaderBox: @unchecked Sendable {
 public final class XTouchOneMIDIInput: @unchecked Sendable {
     private var client = MIDIClientRef()
     private var port = MIDIPortRef()
+    private let source: MIDIEndpointRef
+    private let sourceUniqueID: Int32
+
+    /// Whether the port's original endpoint is still the online source for this ID.
+    public var isCurrent: Bool { (try? XTouchOneMIDIEndpoint.find(sourceUniqueID, .source)) == source }
 
     /// `receive` runs on CoreMIDI's thread, one complete message per call.
-    /// `setupChanged` runs on the creating thread's run loop whenever the MIDI setup changes.
+    /// `setupChanged` runs on a thread chosen by CoreMIDI whenever the MIDI setup changes.
     public init(sourceUniqueID: Int32, clientName: String, receive: @escaping @Sendable ([UInt8]) -> Void,
                 setupChanged: @escaping @Sendable () -> Void = {}) throws {
+        self.sourceUniqueID = sourceUniqueID
+        source = try XTouchOneMIDIEndpoint.find(sourceUniqueID, .source)
         try check(MIDIClientCreateWithBlock(clientName as CFString, &client) { notification in
             let id = notification.pointee.messageID
-            if id == .msgSetupChanged || id == .msgObjectAdded || id == .msgObjectRemoved { setupChanged() }
+            if id == .msgSetupChanged || id == .msgObjectAdded || id == .msgObjectRemoved || id == .msgPropertyChanged {
+                setupChanged()
+            }
         }, "MIDIClientCreate")
         do {
-            let source = try XTouchOneMIDIEndpoint.find(sourceUniqueID, .source)
             let box = ReaderBox()
             try check(MIDIInputPortCreateWithProtocol(client, "input" as CFString, ._1_0, &port) { list, _ in
                 for packet in list.unsafeSequence() {
@@ -103,11 +123,91 @@ public final class XTouchOneMIDIInput: @unchecked Sendable {
             try check(MIDIPortConnectSource(port, source, nil), "MIDIPortConnectSource")
         } catch {
             MIDIClientDispose(client)
+            client = 0
             throw error
         }
     }
 
-    deinit { MIDIClientDispose(client) }
+    deinit { if client != 0 { MIDIClientDispose(client) } }
+}
+
+/// Follows one source ID even if it is absent at startup. All events run on the main actor.
+/// A replacement source gets a fresh input port and packet reader. This class cannot send MIDI.
+@MainActor
+public final class XTouchOneMIDISourceMonitor {
+    public enum Event: Equatable, Sendable {
+        case connected(XTouchOneMIDIEndpoint)
+        case disconnected
+        case input([UInt8])
+    }
+
+    private let sourceID: Int32
+    private let clientName: String
+    private let event: (Event) -> Void
+    private var client = MIDIClientRef()
+    private var binding: (id: UUID, input: XTouchOneMIDIInput)?
+    private var presenceCheck: Task<Void, Never>?
+    private var stopped = false
+    public private(set) var connectionError: (any Error)?
+
+    public init(sourceUniqueID: Int32, clientName: String, event: @escaping (Event) -> Void) throws {
+        sourceID = sourceUniqueID
+        self.clientName = clientName
+        self.event = event
+        try check(MIDIClientCreateWithBlock(clientName as CFString, &client) { [weak self] notification in
+            switch notification.pointee.messageID {
+            case .msgSetupChanged, .msgObjectAdded, .msgObjectRemoved, .msgPropertyChanged:
+                DispatchQueue.main.async { [weak self] in self?.refresh() }
+            default:
+                break
+            }
+        }, "MIDIClientCreate")
+        refresh()
+        // Notifications can arrive before endpoint properties are visible in enumeration.
+        presenceCheck = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+                guard let self else { return }
+                self.refresh()
+            }
+        }
+    }
+
+    deinit {
+        presenceCheck?.cancel()
+        if client != 0 { MIDIClientDispose(client) }
+    }
+
+    public func stop() {
+        stopped = true
+        presenceCheck?.cancel()
+        binding = nil
+    }
+
+    private func refresh() {
+        guard !stopped, connectionError == nil, binding?.input.isCurrent != true else { return }
+        if binding != nil {
+            binding = nil
+            event(.disconnected)
+        }
+        guard !stopped, let endpoint = XTouchOneMIDIEndpoint.all(.source).first(where: {
+            $0.uniqueID == sourceID && !$0.isOffline
+        }) else { return }
+        let id = UUID()
+        do {
+            let input = try XTouchOneMIDIInput(sourceUniqueID: sourceID, clientName: clientName + " input", receive: { [weak self] bytes in
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.binding?.id == id else { return }
+                    self.event(.input(bytes))
+                }
+            })
+            binding = (id, input)
+            event(.connected(endpoint))
+        } catch {
+            // A source can go offline while its port is being opened. Retry when the setup changes.
+            if (try? XTouchOneMIDIEndpoint.find(sourceID, .source)) != nil { connectionError = error }
+        }
+    }
 }
 
 /// Writes complete messages to exactly one destination chosen by unique ID.
@@ -116,27 +216,31 @@ public final class XTouchOneMIDIOutput: @unchecked Sendable {
     private var client = MIDIClientRef()
     private var port = MIDIPortRef()
     private let destinationUniqueID: Int32
+    private let destination: MIDIEndpointRef
+
+    public var isCurrent: Bool { (try? XTouchOneMIDIEndpoint.find(destinationUniqueID, .destination)) == destination }
 
     public init(destinationUniqueID: Int32, clientName: String) throws {
         self.destinationUniqueID = destinationUniqueID
+        destination = try XTouchOneMIDIEndpoint.find(destinationUniqueID, .destination)
         try check(MIDIClientCreateWithBlock(clientName as CFString, &client, nil), "MIDIClientCreate")
         do {
-            _ = try XTouchOneMIDIEndpoint.find(destinationUniqueID, .destination)
             try check(MIDIOutputPortCreate(client, "output" as CFString, &port), "MIDIOutputPortCreate")
         } catch {
             MIDIClientDispose(client)
+            client = 0
             throw error
         }
     }
 
-    deinit { MIDIClientDispose(client) }
+    deinit { if client != 0 { MIDIClientDispose(client) } }
 
-    /// The destination is looked up again on every write, so a replaced endpoint is never written by a stale reference.
+    /// Rejects an offline or replaced destination. A fresh binding is required to write again.
     public func write(_ message: [UInt8]) throws {
         guard let words = XTouchOneUniversalPackets.words(for: message), words.count <= 64 else {
             throw XTouchOneCoreMIDIError.notEncodable
         }
-        let destination = try XTouchOneMIDIEndpoint.find(destinationUniqueID, .destination)
+        guard isCurrent else { throw XTouchOneCoreMIDIError.endpointNotFound(destinationUniqueID) }
         var list = MIDIEventList()
         let packet = MIDIEventListInit(&list, ._1_0)
         _ = MIDIEventListAdd(&list, MemoryLayout<MIDIEventList>.size, packet, 0, words.count, words)

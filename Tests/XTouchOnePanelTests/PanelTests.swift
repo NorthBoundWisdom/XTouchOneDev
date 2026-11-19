@@ -26,6 +26,8 @@ struct PanelTests {
     }
 
     @Test func segmentTextFillsTheAssignmentAndCounterFields() {
+        #expect(XTouchOneSegmentFont.mask(for: "ß") == 0)
+        #expect(XTouchOneSegmentFont.mask(for: "你") == 0)
         guard case .segmentDisplay(let masks, 0, 0) = XTouchOneSegmentFont.display(assignment: "Pn", counter: "42") else {
             Issue.record("expected a segment display"); return
         }

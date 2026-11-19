@@ -1,6 +1,6 @@
 # XTouchOneDev
 
-AstroController 的 Behringer X-Touch One 离线设备适配器，尚未连接过实机。使用 ControlSurfaceKit 的中性设备合同和 SurfacePlugins 的控制合同。协议依据是 [Behringer MIDI Mode Implementation](https://cdn.mediavalet.com/aunsw/musictribe/g9onGOWczEOY5jIl8xEyXw/ORt6XQvz_0Kn62IYtEmkRQ/Original/Document_BE_X-TOUCH-ONE-MIDI-Mode-Implementation.pdf) 和 [Quick Start Guide](https://cdn.mediavalet.com/aunsw/musictribe/vLVIKV3wOkCX1u1NKTU4AA/_6iHaVpROESvWvldLUtf-Q/Original/QSG_BE_0808-AAG_X-TOUCH%20ONE_WW.pdf) 的 MIDI 模式表。
+AstroController 的 Behringer X-Touch One 设备适配器，使用 ControlSurfaceKit 的中性设备合同和 SurfacePlugins 的控制合同。macOS 已识别实体设备的 CoreMIDI 输入和输出端点，协议行为仍待实机采样。协议依据是 [Behringer MIDI Mode Implementation](https://cdn.mediavalet.com/aunsw/musictribe/g9onGOWczEOY5jIl8xEyXw/ORt6XQvz_0Kn62IYtEmkRQ/Original/Document_BE_X-TOUCH-ONE-MIDI-Mode-Implementation.pdf) 和 [Quick Start Guide](https://cdn.mediavalet.com/aunsw/musictribe/vLVIKV3wOkCX1u1NKTU4AA/_6iHaVpROESvWvldLUtf-Q/Original/QSG_BE_0808-AAG_X-TOUCH%20ONE_WW.pdf) 的 MIDI 模式表。
 
 ## 构建与测试
 
@@ -35,7 +35,7 @@ swift test --scratch-path build/swiftpm
 | Build | Panel App Bundle（仅 macOS） | `python3 -B configs/workflow.py app --bundle-only` | `build/app/XTouchOneApp.app`，ad-hoc 签名 |
 | Run | Panel App（macOS 缺省） | `python3 -B configs/workflow.py app` | 构建、打包并在终端里运行面板应用，Ctrl+C 结束。启动时是模拟设备，不打开任何 MIDI 端点 |
 | Run | List MIDI Endpoints | `python3 -B configs/workflow.py run xtouch-one-monitor list` | 只读地列出 CoreMIDI 端点，不发送 |
-| Run | Monitor Usage、Review Usage | `python3 -B configs/workflow.py run --usage <命令>` | 打印用法。`record` 和 `show` 需要端点 id，从终端运行 |
+| Run | Monitor Usage、Review Usage | `python3 -B configs/workflow.py run --usage <命令>` | 打印用法。`probe`、`record` 和 `show --write` 需要端点 ID，从终端运行 |
 | Test | Swift Tests（缺省） | `python3 -B configs/workflow.py test` | 与硬件无关的全部测试，不打开任何 MIDI 端点 |
 | Test | CoreMIDI Loopback（仅 macOS） | `python3 -B configs/workflow.py test --coremidi-loopback` | 另外运行回环测试，只用测试自建的虚拟端点 |
 
@@ -90,7 +90,7 @@ swift test --scratch-path build/swiftpm
 `XTouchOneApp` 的界面结构和配色与 XTouchCompactDev、BCR2000Dev 的控制台一致：顶部模式栏（Mock 设备 / Hardware，Hardware 下再分只监听 / 允许发送），标题栏（电机归位、设置、设备状态），下面三栏：左边是按设备正面布局画的面板，中间是工作区（数值、按键灯、MIDI 监视），右边是选中控件的检查器（状态、软件写入、MIDI 地址）。模式、通道、端点和“允许电机召回”在设置弹窗里。
 
 - **模拟设备**（启动时的来源）：在面板上点按键、拖推子、上下拖编码器、绕圈拖拨轮，都会经文档模型产生设备字节，再走会话解码。“演示联动”打开时，按键切换自己的灯，编码器带灯环，推子带电平表和 LCD，拨轮带数码管计数。这些显示全部走正常的显示路径。按键上右键、“按键灯”标签或检查器都可以单独设置灯的状态。
-- **实体端点**：选择输入端点后连接，连接本身不发送。缺省只监听，面板显示设备报告的按键、推子位置和触摸；推子位置未知时画虚线推子帽。顶部的“允许发送”和设置里的“允许电机召回”是两个单独的开关，缺省都关。面板上画的灯和显示是已被传输接受的发送内容，不是设备实际显示。实体来源下面板上的点击不产生任何输入。
+- **实体端点**：选择输入端点后连接，默认只打开输入端口。面板显示设备报告的按键、推子位置和触摸；推子位置未知时画虚线推子帽。顶部的“允许发送”和设置里的“允许电机召回”是两个单独的开关，缺省都关。所用端点掉线或被替换时，应用断开并恢复只监听，需要显式重连。面板用传输已接受的发送内容绘制灯和显示。实体来源下面板上的点击不产生任何输入。
 - 改来源、模式、通道或任一开关都会新建会话，之前的排队显示和观察不保留。
 - 按键上的小数字是地址。地址与面板按键的对应（`XTouchOnePanelLayout`）来自 Behringer 的贴纸模板：编码器按压是 0，CHANNEL 行 1–6，FUNCTION 行 7–12，TRANSPORT 上排 13–19，走带键 20–24，FADER BANK 25–26，CHANNEL 27–28，SCRUB 29，方向键上 30、左 31、中 32、右 33、下 34。数码管段位顺序按 MIDI 模式文档。两者都还没有在实机上确认。
 - `XTouchOneApp --snapshot <png> [--sample] [--tab values|lights|monitor] [--hardware] [--size <宽>x<高>]` 在屏幕外排版整个窗口，写一张图后退出，不显示窗口，也不打开 MIDI 端点。宽高为正整数，每边上限 8192，总面积上限 16777216 平方点。
@@ -101,14 +101,16 @@ swift test --scratch-path build/swiftpm
 
 ```sh
 swift run --scratch-path build/swiftpm xtouch-one-monitor list
+swift run --scratch-path build/swiftpm xtouch-one-monitor probe --input <id> --seconds 10
 swift run --scratch-path build/swiftpm xtouch-one-monitor record --input <id> --mode Midi --channel 1 \
     --source hardware --out capture.jsonl
 swift run --scratch-path build/swiftpm xtouch-one-review --require-complete capture.jsonl
 ```
 
-- `list` 列出 CoreMIDI 端点，`record` 只监听一个指定的输入端点。两者都不创建输出端口，不可能发送。`record` 把原始字节、连接事件、代次和时间写成 JSON Lines，结束时打印审查结果，已有文件不覆盖。`--source` 必须显式写明。
-- `show` 向指定输出端点发一条显示报文（按钮灯、灯环、电平表、LCD），走会话的全部门禁。不加 `--write` 只打印字节。它没有电机命令。
-- `xtouch-one-review` 离线读取录制文件：覆盖缺项、其他通道、未识别报文、每个代次最先到达的报文、序号与时间异常、输出方向里的电机目标数。加 `--require-complete` 时不完整则退出码为 1。
+- `list` 列出 CoreMIDI 端点。`probe` 监听一个输入 ID，打印收到的 MIDI 1.0 通道及 SysEx 报文、连接次数与在线时长，适用于模式和通道尚未确认时的空闲观察。
+- `record` 将同一输入端点的原始消息字节、连接事件、代次和单调时间写成 JSON Lines，结束时打印审查结果，已有文件不覆盖。显式填写 `--source`、设备模式和通道。`probe` 和 `record` 可以在已知 ID 对应的设备离线时启动，重连时重新订阅同一 ID。以上三个命令都只读。
+- `show` 默认预览编码后的字节。加 `--write --input <id> --output <id>` 后，经会话门禁向输出端点发送一条显示报文。支持按钮灯、灯环、电平表、LCD 和数码管。LCD 命令接受 `--invert-upper` 和 `--invert-lower`。数码管使用 `segments 3F065B4F666D7D077F6F0000 01 10`，先写连续的 12 个十六进制段码字节，再写可选的两个十六进制点掩码。
+- `xtouch-one-review` 离线读取录制文件，报告覆盖缺项、其他通道、未识别报文、每代首批报文和首包延时、序号与时间异常，以及输出方向所有通道中的电机目标数。加 `--require-complete` 时不完整则退出码为 1。
 
 CoreMIDI 回环测试只使用测试自己创建的虚拟端点，缺省跳过，用 `XTOUCH_ONE_COREMIDI_TESTS=1` 开启。
 
@@ -118,14 +120,14 @@ CoreMIDI 回环测试只使用测试自己创建的虚拟端点，缺省跳过�
 
 ## 到货后采样
 
-每一步都要用户在场。前四步只监听，不向设备发送任何字节。
+端点枚举和设备已开机时的空闲观察可独立完成。以下涉及开机、模式确认、控件操作和显示核对的步骤由用户在场配合。前四步只监听。
 
 1. 记录固件版本和面板上显示的模式与通道。`xtouch-one-monitor list` 记下设备输入、输出端点的 unique id、名称和厂商信息。
-2. 先启动 `record`（`--source hardware`，`--firmware` 写上版本），再插上或打开设备，停手 10 秒。审查结果里该代次最先到达的报文就是初连时设备自己发出的内容，没有则说明初连静默。
+2. 先用步骤 1 的输入 ID 启动 `record`（`--source hardware`，`--firmware` 写上版本），再插上或打开设备，停手 10 秒。记录已建立订阅后的首批报文和到达时间。首包可能早于 CoreMIDI 建立订阅，报告时注明观察窗口。
 3. 逐个按下并松开每个按钮（含编码器按压）和脚踏；触摸并松开推子，把推子推到两端；编码器和拨轮各向两个方向转。对照审查结果的缺项补齐，直到 `xtouch-one-review --require-complete` 通过。未识别的报文和其他通道上的报文都保留为证据，说明文档地址表与实机有差异，先补离线用例再继续。
 4. 录制中拔线再插回。确认断开与重连事件、代次变化，以及重连后设备是否主动发报文。
 5. 四种模式各录一份。相对模式下确认编码器每格的值是否确实只有 65 和 1，快转时是否出现其他增量。
-6. 显示渲染另行安排，逐条进行：用 `show --write` 每次发一条，由人眼确认按钮灯三种状态、灯环、电平表、LCD 两行、颜色和反相。七段显示的命令行入口还没有做。
+6. 显示渲染另行安排，每次用 `show --write` 发一条。由人眼确认按钮灯三种状态、灯环、电平表、LCD 两行、颜色和反相，以及数码管字形和小数点的位置。
 7. 电机行为不在采样范围内。`recallFader` 没有命令行入口，实机验证前需要单独的在场安排：先小幅、确认无手。
 
 实机证据出来之前，下列内容都只来自文档：按钮地址与面板按键的对应、触摸是否只在边沿报告、推子位置是否在电机移动时回报、初连和重连是否静默、显示吞吐上限。

@@ -11,6 +11,9 @@ public struct XTouchOneCaptureReview: Equatable, Sendable {
         public var firstInputs: [[UInt8]] = []
         /// True when the capture shows this generation's connection event before any input.
         public var sawConnected = false
+        public var connectedAt: Double?
+        public var firstInputAt: Double?
+        public var disconnectedAt: Double?
     }
 
     public static let firstInputLimit = 8
@@ -20,7 +23,7 @@ public struct XTouchOneCaptureReview: Equatable, Sendable {
     public private(set) var generations: [Generation] = []
     public private(set) var inputMessageCount = 0
     public private(set) var outputMessageCount = 0
-    /// CC 70 messages on the selected channel found in the output direction.
+    /// CC 70 messages on any channel found in the output direction.
     public private(set) var motorTargetsSent = 0
     public private(set) var unframedByteCount = 0
     public private(set) var problems: [String] = []
@@ -34,7 +37,8 @@ public struct XTouchOneCaptureReview: Equatable, Sendable {
 
         for record in capture.records {
             if let previous {
-                if record.seq != previous.seq + 1 { problems.append("seq \(record.seq) follows \(previous.seq)") }
+                let (next, overflow) = previous.seq.addingReportingOverflow(1)
+                if overflow || record.seq != next { problems.append("seq \(record.seq) follows \(previous.seq)") }
                 if record.at < previous.at { problems.append("seq \(record.seq): time runs backwards") }
                 if record.generation < previous.generation { problems.append("seq \(record.seq): generation decreases") }
             }
@@ -46,18 +50,24 @@ public struct XTouchOneCaptureReview: Equatable, Sendable {
                 }
                 inputFramer.reset()
                 outputFramer.reset()
+                coverage.beginGeneration()
             }
             let index = generations.count - 1
             generations[index].lastAt = record.at
             switch record.content {
             case .connected:
-                if generations[index].inputMessageCount == 0 { generations[index].sawConnected = true }
+                if generations[index].firstInputAt == nil, generations[index].connectedAt == nil {
+                    generations[index].sawConnected = true
+                    generations[index].connectedAt = record.at
+                }
             case .disconnected:
-                break
+                generations[index].disconnectedAt = record.at
+                coverage.beginGeneration()
             case .input(let bytes):
                 for message in inputFramer.feed(bytes) {
                     inputMessageCount += 1
                     generations[index].inputMessageCount += 1
+                    if generations[index].firstInputAt == nil { generations[index].firstInputAt = record.at }
                     if generations[index].firstInputs.count < Self.firstInputLimit {
                         generations[index].firstInputs.append(message)
                     }
@@ -66,7 +76,7 @@ public struct XTouchOneCaptureReview: Equatable, Sendable {
             case .output(let bytes):
                 for message in outputFramer.feed(bytes) {
                     outputMessageCount += 1
-                    if message.count == 3, message[0] == 0xB0 | (profile.channel - 1), message[1] == 70 {
+                    if message.count == 3, message[0] & 0xF0 == 0xB0, message[1] == 70 {
                         motorTargetsSent += 1
                     }
                 }
@@ -100,6 +110,10 @@ public struct XTouchOneCaptureReview: Equatable, Sendable {
         for generation in generations {
             lines.append("generation \(generation.generation): \(generation.inputMessageCount) inputs from \(generation.firstAt) to \(generation.lastAt)"
                 + (generation.sawConnected ? ", connection event recorded" : ""))
+            if let connected = generation.connectedAt, let first = generation.firstInputAt {
+                lines.append("  first input \(first - connected) s after connection")
+            }
+            if let disconnected = generation.disconnectedAt { lines.append("  disconnected at \(disconnected) s") }
             lines += generation.firstInputs.map { "  " + hex($0) }
         }
         lines += problems.map { "problem: " + $0 }

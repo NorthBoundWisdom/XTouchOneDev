@@ -1,5 +1,6 @@
 #if os(macOS)
 import Foundation
+import SurfacePluginContracts
 import Observation
 import SurfaceFeedbackPlanning
 import XTouchOneAdapter
@@ -15,13 +16,17 @@ enum PanelSelection: Hashable {
 enum ConsoleMode: Hashable { case mock, hardwareListen, hardwareSend }
 
 enum WorkspaceTab: String, CaseIterable, Identifiable {
-    case values, lights, monitor
+    case values, lights, monitor, parameters, organize, agents, capture
     var id: String { rawValue }
     var title: String {
         switch self {
         case .values: "数值"
         case .lights: "按键灯"
         case .monitor: "MIDI 监视"
+        case .parameters: "参数"
+        case .organize: "组织"
+        case .agents: "Agent"
+        case .capture: "录制"
         }
     }
     var systemImage: String {
@@ -29,6 +34,10 @@ enum WorkspaceTab: String, CaseIterable, Identifiable {
         case .values: "slider.horizontal.3"
         case .lights: "lightbulb"
         case .monitor: "waveform"
+        case .parameters: "slider.horizontal.2.square"
+        case .organize: "rectangle.3.group"
+        case .agents: "person.crop.circle"
+        case .capture: "record.circle"
         }
     }
 }
@@ -46,10 +55,18 @@ final class AppModel {
     private(set) var sources: [XTouchOneMIDIEndpoint] = []
     private(set) var destinations: [XTouchOneMIDIEndpoint] = []
     private(set) var lastError: String?
+    private(set) var configurationLibrary: [String: XTouchOneConfiguration] = [:]
+    private(set) var storageError: String?
+    private(set) var captureLocation: URL?
+    private(set) var captureError: String?
+    private(set) var captureEvents = 0
+    private(set) var recording = false
+    @ObservationIgnored private var captureWriter: LiveCaptureWriter?
     var sourceID: Int32?
     var destinationID: Int32?
     var selection: PanelSelection? = .fader
     var tab = WorkspaceTab.values
+    var highlightedGroup: String?
     var blink = false
     var showAddresses = true
     var lcdInvertUpper = false
@@ -65,9 +82,27 @@ final class AppModel {
     @ObservationIgnored private var output: XTouchOneMIDIOutput?
     @ObservationIgnored private var connectionID: UUID?
 
-    init() {
+    @ObservationIgnored private let workspaceStore: WorkspaceStore?
+    @ObservationIgnored private var diskWritable = true
+    @ObservationIgnored private var savePending = false
+    @ObservationIgnored private var lastSaveAt = 0.0
+
+    init(persistent: Bool = false) {
+        let store = persistent ? WorkspaceStore.standard : nil
+        workspaceStore = store
+        var restored: XTouchOneWorkspace?
+        do {
+            if let saved = try store?.load() {
+                restored = try XTouchOneWorkspace(configuration: saved.configuration, savedValues: saved.values)
+                configurationLibrary = saved.library
+            }
+        } catch {
+            diskWritable = false
+            storageError = "保留原工作区文件。\(error.localizedDescription)"
+        }
         console = try! XTouchOneConsole(link: .mock, profile: XTouchOneMIDIProfile(mode: .midi, channel: 1),
-                                        displayRate: .unlimited, outputPolicy: .write, mechanismPolicy: .localRecall)
+                                        displayRate: .unlimited, outputPolicy: .write, mechanismPolicy: .localRecall,
+                                        workspace: restored)
     }
 
     var now: Double { ProcessInfo.processInfo.systemUptime }
@@ -92,6 +127,7 @@ final class AppModel {
     var profileSummary: String { "MIDI 模式 \(mode.rawValue) · 通道 \(channel)" }
 
     private func attempt(_ body: () throws -> Void) {
+        defer { collectCapture() }
         do { try body(); lastError = nil } catch { lastError = "\(error)" }
     }
 
@@ -101,19 +137,22 @@ final class AppModel {
                    allowWrite: Bool? = nil, allowRecall: Bool? = nil) {
         let reconnect = isConnected && (link ?? self.link) == .hardware && self.link == .hardware
         closeConnection()
+        if recording { stopCapture() }
         self.link = link ?? self.link
         self.mode = mode ?? self.mode
         self.channel = channel ?? self.channel
         self.allowWrite = allowWrite ?? self.allowWrite
         self.allowRecall = (allowRecall ?? self.allowRecall) && self.allowWrite
         let demo = console.demoLinks
+        let workspace = console.workspace
         attempt {
             let profile = try XTouchOneMIDIProfile(mode: self.mode, channel: self.channel)
             let mock = self.link == .mock
             console = try XTouchOneConsole(
                 link: self.link, profile: profile, displayRate: mock ? .unlimited : XTouchOneConsole.hardwareDisplayRate,
                 outputPolicy: mock || self.allowWrite ? .write : .observe,
-                mechanismPolicy: mock || self.allowRecall ? .localRecall : .disabled, demoLinks: demo)
+                mechanismPolicy: mock || self.allowRecall ? .localRecall : .disabled, demoLinks: demo,
+                workspace: workspace)
         }
         if self.link == .hardware { refreshEndpoints() }
         if reconnect { connect() }
@@ -183,14 +222,18 @@ final class AppModel {
 
     private func received(_ message: [UInt8]) {
         guard isConnected else { return }
+        let previous = console.workspace.values
         attempt { try console.receive(message, at: now) }
+        noteInputValues(previous)
         flush()
     }
 
     // MARK: Panel and inspector actions
 
     func act(_ action: XTouchOnePanelAction) {
+        let previous = console.workspace.values
         attempt { try console.operate(action, at: now) }
+        noteInputValues(previous)
         flush()
     }
 
@@ -244,6 +287,114 @@ final class AppModel {
 
     func tick() {
         blink.toggle()
+        if console.agents != nil { attempt { try console.advanceAgents(at: now) } }
+        if !console.session.queuedDisplayTargets.isEmpty { flush() }
+        if savePending, now - lastSaveAt >= 1 { saveWorkspace() }
+    }
+
+    func startCapture(at url: URL) {
+        guard !recording else { return }
+        do {
+            let writer = try LiveCaptureWriter(at: url, model: self)
+            captureWriter = writer
+            captureLocation = url
+            captureEvents = writer.events
+            captureError = nil
+            recording = true
+        } catch { captureError = String(describing: error) }
+    }
+
+    private func collectCapture() {
+        guard let captureWriter else { return }
+        do {
+            try captureWriter.collect(console.log)
+            captureEvents = captureWriter.events
+        } catch {
+            captureError = String(describing: error)
+            stopCapture()
+        }
+    }
+
+    func stopCapture() {
+        guard let writer = captureWriter else { return }
+        captureWriter = nil
+        recording = false
+        do { try writer.close() } catch { captureError = String(describing: error) }
+    }
+
+    var workspace: XTouchOneWorkspace { console.workspace }
+
+    func panelOpacity(for control: String) -> Double {
+        guard let highlightedGroup else { return 1 }
+        guard case .parameter(let id) = workspace.configuration.bindings[control],
+              workspace.definition(id)?.group == highlightedGroup else { return 0.3 }
+        return 1
+    }
+
+    func controlLabel(_ id: String) -> XTouchOneControlLabel? { workspace.configuration.labels[id] }
+
+    func editWorkspace(feedback: Bool = false, _ edit: (inout XTouchOneWorkspace) throws -> Void) {
+        attempt {
+            var next = workspace
+            try edit(&next)
+            console.workspace = next
+            savePending = true
+            if feedback, canWriteDisplay { try console.repaintParameterFeedback(at: now) }
+        }
+        if !console.session.queuedDisplayTargets.isEmpty { flush() }
+    }
+
+    private func noteInputValues(_ previous: [ParameterID: Double]) {
+        if previous != workspace.values { savePending = true }
+        if link == .mock, case .parameter(let id) = workspace.configuration.bindings["encoder.turn"],
+           previous[id] != workspace.values[id], !demoLinks {
+            attempt { try console.repaintParameterFeedback(at: now) }
+        }
+    }
+
+    func applyConfiguration(_ configuration: XTouchOneConfiguration, preserveValues: Bool) {
+        editWorkspace { try $0.apply(configuration, preserveValues: preserveValues) }
+    }
+
+    func saveConfiguration(named name: String) {
+        guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        configurationLibrary[name] = workspace.configuration
+        savePending = true
+    }
+
+    func removeConfiguration(named name: String) {
+        configurationLibrary.removeValue(forKey: name)
+        savePending = true
+    }
+
+    func saveWorkspace() {
+        guard savePending, diskWritable, let workspaceStore else { return }
+        lastSaveAt = now
+        do {
+            try workspaceStore.save(SavedWorkspace(configuration: workspace.configuration, values: workspace.values,
+                                                   library: configurationLibrary))
+            savePending = false
+            storageError = nil
+        } catch {
+            storageError = error.localizedDescription
+        }
+    }
+
+    func toggleAgents(_ enabled: Bool) {
+        attempt {
+            if enabled { try console.startAgents(at: now) }
+            else { try console.stopAgents(at: now) }
+        }
+        if !console.session.queuedDisplayTargets.isEmpty { flush() }
+    }
+
+    func runAgent(_ index: Int) {
+        attempt { try console.invokeAgent(index, at: now) }
+        if !console.session.queuedDisplayTargets.isEmpty { flush() }
+    }
+
+    func interruptAgent(_ index: Int) {
+        attempt { try console.interruptAgent(index, at: now) }
         if !console.session.queuedDisplayTargets.isEmpty { flush() }
     }
 

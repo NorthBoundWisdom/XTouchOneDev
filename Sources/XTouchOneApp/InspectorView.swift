@@ -26,10 +26,10 @@ struct ControlInspectorView: View {
 
     private func names(_ selection: PanelSelection) -> (short: String, long: String) {
         switch selection {
-        case .key(let address): ("B\(address)", XTouchOnePanelLayout.key(at: address)?.label ?? "")
-        case .fader: ("F", "电动推子")
-        case .encoder: ("ENC", "编码器与灯环")
-        case .jog: ("JOG", "拨轮")
+        case .key(let address): ("B\(address)", model.controlLabel("button.\(address)")?.name ?? XTouchOnePanelLayout.key(at: address)?.label ?? "")
+        case .fader: ("F", model.controlLabel("fader")?.name ?? "电动推子")
+        case .encoder: ("ENC", model.controlLabel("encoder.turn")?.name ?? "编码器与灯环")
+        case .jog: ("JOG", model.controlLabel("jog")?.name ?? "拨轮")
         case .meter: ("MTR", "电平表")
         case .lcd: ("LCD", "液晶屏")
         case .segments: ("7SEG", "数码管")

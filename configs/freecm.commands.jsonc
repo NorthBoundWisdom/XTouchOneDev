@@ -10,7 +10,7 @@
         "args": ["-B", "configs/setup_local_project.py"],
         "platforms": ["darwin"],
         "default": true,
-        "defaults": {"build": "debug", "run": "app", "test": "unit"},
+        "defaults": {"build": "debug", "run": "app", "test": "unit", "package": "release-package"},
         "readiness": {
           "inputs": [
             "Package.swift", "configs/setup_local_project.py", "configs/workflow.py",
@@ -86,6 +86,14 @@
         "description": "Print the offline capture review command line",
         "command": "python3", "args": ["-B", "configs/workflow.py", "run", "--usage", "xtouch-one-review"],
         "configurations": ["local-swift", "linux-swift"]
+      }
+    ],
+    "package": [
+      {
+        "id": "release-package", "label": "Universal ZIP and DMG",
+        "description": "Build and verify a local ad-hoc signed macOS delivery under build/deliveries",
+        "command": "python3", "args": ["-B", "configs/package_release.py", "--architecture", "universal"],
+        "configurations": ["local-swift"]
       }
     ],
     "test": [

@@ -115,13 +115,6 @@ private struct EventPage: Encodable {
     }
 }
 
-private extension XTouchOneMIDIEndpoint {
-    var isXTouchOneDeviceEndpoint: Bool {
-        !isVirtual && manufacturer?.caseInsensitiveCompare("Behringer") == .orderedSame
-            && model?.caseInsensitiveCompare("X-Touch One") == .orderedSame
-    }
-}
-
 @MainActor
 private final class ControlSession {
     private var console: XTouchOneConsole
@@ -139,7 +132,7 @@ private final class ControlSession {
         self.outputID = outputID
         if let outputID {
             guard let endpoint = XTouchOneMIDIEndpoint.all(.destination).first(where: {
-                $0.uniqueID == outputID && !$0.isOffline && $0.isXTouchOneDeviceEndpoint
+                $0.uniqueID == outputID && !$0.isOffline && $0.isXTouchOne
             }), let deviceID = endpoint.deviceID else {
                 throw ControlError.invalidArguments("--output requires an online X-Touch One destination")
             }
@@ -170,7 +163,7 @@ private final class ControlSession {
         do {
             switch event {
             case .connected(let endpoint):
-                guard endpoint.isXTouchOneDeviceEndpoint, let deviceID = endpoint.deviceID else {
+                guard endpoint.isXTouchOne, let deviceID = endpoint.deviceID else {
                     throw ControlError.invalidArguments("hardware sessions require an X-Touch One input source")
                 }
                 guard outputDeviceID == nil || outputDeviceID == deviceID else {

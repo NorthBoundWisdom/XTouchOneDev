@@ -17,6 +17,7 @@ struct ContentView: View {
         .background(Theme.background)
         .preferredColorScheme(.dark)
         .onReceive(clock) { _ in model.tick() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in model.saveWorkspace() }
     }
 }
 
@@ -73,8 +74,9 @@ private struct SurfaceArea: View {
 }
 
 struct XTouchOneApplication: App {
+    @State private var model = AppModel(persistent: !CommandLine.arguments.contains("--isolated"))
     var body: some Scene {
-        WindowGroup("X-Touch One Console") { ContentView(model: AppModel()).frame(minWidth: 900, minHeight: 680) }
+        WindowGroup("X-Touch One Console") { ContentView(model: model).frame(minWidth: 900, minHeight: 680) }
             .defaultSize(width: 1280, height: 900)
     }
 }
@@ -128,6 +130,12 @@ func writeSnapshot(to path: String, arguments: [String]) throws {
 }
 
 let arguments = CommandLine.arguments
+if arguments.contains("--startup-smoke") {
+    let model = AppModel()
+    precondition(model.consoleMode == .mock && model.isConnected && model.workspace.values.count == 3)
+    print("X-Touch One startup OK")
+    exit(0)
+}
 if let flag = arguments.firstIndex(of: "--snapshot") {
     do {
         guard flag + 1 < arguments.count, !arguments[flag + 1].hasPrefix("--") else { throw SnapshotError.missingOutput }

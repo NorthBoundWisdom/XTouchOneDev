@@ -150,7 +150,7 @@ private struct KeyBehavior: ViewModifier {
             }
             .accessibilityElement(children: .ignore)
             .accessibilityIdentifier("button.\(key.address)")
-            .accessibilityLabel("B\(key.address) \(key.label)")
+            .accessibilityLabel("B\(key.address) \(model.controlLabel(key.button.elementID)?.name ?? key.label)")
             .accessibilityValue(light == .on ? "点亮" : light == .flash ? "闪烁" : "熄灭")
             .accessibilityAddTraits(.isButton)
             .help("操作 B\(key.address) · \(key.label)")
@@ -172,12 +172,16 @@ struct KeyCell: View {
 
     var body: some View {
         let color = Theme.led(key.light)
+        let label = model.controlLabel(key.button.elementID)
         VStack(spacing: 3) {
             RoundedRectangle(cornerRadius: 6)
                 .fill(lit ? AnyShapeStyle(RadialGradient(colors: [.white, color], center: .center, startRadius: 1, endRadius: 22))
                     : AnyShapeStyle(LinearGradient(colors: [Color(white: 0.62), Color(white: 0.42)], startPoint: .top, endPoint: .bottom)))
                 .shadow(color: lit ? color.opacity(0.85) : .clear, radius: 7)
                 .overlay { selectionStroke(model.selection == .key(key.address), radius: 6) }
+                .overlay(alignment: .bottomLeading) {
+                    if let tag = label?.color { Circle().fill(tag.color).frame(width: 5, height: 5).padding(3) }
+                }
                 .overlay(alignment: .bottomTrailing) {
                     if model.showAddresses {
                         Text("\(key.address)").font(.system(size: 7.5, weight: .semibold, design: .monospaced))
@@ -188,11 +192,12 @@ struct KeyCell: View {
                 .brightness(down ? -0.2 : 0)
                 .scaleEffect(down ? 0.94 : 1)
             if showsLegend {
-                Text(legend ?? key.label).font(.system(size: 7, weight: .semibold)).foregroundStyle(Color(white: 0.85))
-                    .lineLimit(1).fixedSize().frame(width: size.width + 12)
+                Text(label?.name ?? legend ?? key.label).font(.system(size: 7, weight: .semibold)).foregroundStyle(Color(white: 0.85))
+                    .lineLimit(1).frame(width: size.width + 12)
             }
         }
         .modifier(KeyBehavior(model: model, key: key, pressing: $pressing))
+        .opacity(model.panelOpacity(for: key.button.elementID))
     }
 }
 
@@ -226,6 +231,7 @@ struct TransportKey: View {
             .brightness(down ? 0.12 : 0)
             .scaleEffect(down ? 0.96 : 1)
             .modifier(KeyBehavior(model: model, key: key, pressing: $pressing))
+            .opacity(model.panelOpacity(for: key.button.elementID))
     }
 }
 
@@ -462,6 +468,7 @@ struct EncoderCell: View {
             })
         .help("上下拖动转动编码器，原地点按是按压")
         .accessibilityIdentifier("encoder")
+        .modifier(ControlMark(model: model, id: "encoder.turn"))
     }
 }
 
@@ -509,6 +516,7 @@ struct JogCell: View {
         .overlay { if model.selection == .jog { selectionStroke(true, radius: 8).padding(-2) } }
         .help("绕圆心拖动转动拨轮")
         .accessibilityIdentifier("jog")
+        .modifier(ControlMark(model: model, id: "jog"))
     }
 }
 
@@ -555,6 +563,7 @@ struct FaderCell: View {
         .overlay { if model.selection == .fader { selectionStroke(true, radius: 8).padding(-3) } }
         .help("拖动推子：触摸、移动、松手")
         .accessibilityIdentifier("fader")
+        .modifier(ControlMark(model: model, id: "fader"))
     }
 
     /// Long ticks with numbers on the left of the slot, fine ticks between them on both sides.
@@ -599,6 +608,20 @@ struct FaderCell: View {
             }
             .shadow(color: .black.opacity(known ? 0.6 : 0), radius: 3, y: 2)
             .frame(width: 30, height: cap)
+    }
+}
+
+private struct ControlMark: ViewModifier {
+    let model: AppModel
+    let id: String
+
+    func body(content: Content) -> some View {
+        content.overlay(alignment: .topLeading) {
+            if let tag = model.controlLabel(id)?.color {
+                Circle().fill(tag.color).frame(width: 6, height: 6).padding(3).allowsHitTesting(false)
+            }
+        }
+        .opacity(model.panelOpacity(for: id))
     }
 }
 #endif

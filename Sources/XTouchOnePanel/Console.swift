@@ -1,5 +1,7 @@
+import AgentPlugin
 import SurfaceDeviceContracts
 import SurfaceFeedbackPlanning
+import SurfacePluginContracts
 import XTouchOneAdapter
 import XTouchOneSimulator
 
@@ -9,6 +11,7 @@ public enum XTouchOnePanelAction: Equatable, Sendable {
     case touch(Bool)
     case fader(UInt8)
     case encoder(clockwise: Bool)
+    case encoderPosition(UInt8)
     case jog(clockwise: Bool)
 }
 
@@ -27,6 +30,7 @@ public struct XTouchOneConsole: Sendable {
         public let bytes: [UInt8]
         public let text: String
         public let result: FeedbackAttemptResult?
+        public let connection: Bool?
     }
 
     public static let logLimit = 200
@@ -46,6 +50,8 @@ public struct XTouchOneConsole: Sendable {
     /// The mock fader's physical position. The hardware link has no such knowledge.
     public private(set) var mockFader: UInt8 = 0
     public private(set) var log: [Entry] = []
+    public var workspace: XTouchOneWorkspace
+    public private(set) var agents: AgentPlugin?
     /// Local demonstration: keys toggle their lights, the encoder drives the ring, the fader the meter and LCD,
     /// the jog wheel the counter. Every change goes through the normal display path.
     public var demoLinks: Bool
@@ -55,9 +61,10 @@ public struct XTouchOneConsole: Sendable {
 
     public init(link: Link, profile: XTouchOneMIDIProfile, displayRate: FeedbackQueueRate,
                 outputPolicy: XTouchOneOutputPolicy, mechanismPolicy: XTouchOneMechanismPolicy,
-                demoLinks: Bool = true) throws {
+                demoLinks: Bool = true, workspace: XTouchOneWorkspace? = nil) throws {
         self.link = link
         self.demoLinks = demoLinks
+        self.workspace = try workspace ?? XTouchOneWorkspace()
         session = try XTouchOneSession(source: link == .mock ? .simulation : .hardware, profile: profile,
                                        displayRate: displayRate, outputPolicy: outputPolicy,
                                        mechanismPolicy: mechanismPolicy)
@@ -81,20 +88,21 @@ public struct XTouchOneConsole: Sendable {
 
     public mutating func attach(_ route: XTouchOneRoute, at: Double) throws {
         let change = try session.attach(route)
-        if change.startedNewGeneration { resetGeneration(at: at, "connected, generation \(change.generation)") }
+        if change.startedNewGeneration { resetGeneration(at: at, connected: true, "connected, generation \(change.generation)") }
     }
 
     public mutating func detach(at: Double) throws {
         let change = try session.detach()
-        if change.startedNewGeneration { resetGeneration(at: at, "disconnected") }
+        if change.startedNewGeneration { resetGeneration(at: at, connected: false, "disconnected") }
     }
 
-    private mutating func resetGeneration(at: Double, _ text: String) {
+    private mutating func resetGeneration(at: Double, connected: Bool, _ text: String) {
         pressed.removeAll()
         lit.removeAll()
         jogDisplayLinked = false
+        workspace.endInputGroup()
         if link == .hardware { shown = XTouchOneSimulatedDevice(mode: session.profile.mode, channel: session.profile.channel) }
-        note(text, at: at)
+        append(.note, [], text, at, connection: connected)
     }
 
     // MARK: Input
@@ -111,9 +119,10 @@ public struct XTouchOneConsole: Sendable {
             mockFader = min(position, 127)
             bytes = shown.moveFader(to: mockFader)
         case .encoder(let clockwise): bytes = shown.turnEncoder(clockwise: clockwise)
+        case .encoderPosition(let position): bytes = shown.setEncoder(to: position)
         case .jog(let clockwise): bytes = shown.turnJog(clockwise: clockwise)
         }
-        try receive(bytes, at: at)
+        if !bytes.isEmpty { try receive(bytes, at: at) }
     }
 
     /// One framed message from the device, mock or real.
@@ -123,6 +132,7 @@ public struct XTouchOneConsole: Sendable {
             append(.input, message, "\(reason)", at)
         case .event(let event):
             append(.input, message, "\(event.elementID) \(event.kind.rawValue) \(Self.describe(event.value))", at)
+            let newPress = event.kind != .press || !pressed.contains(event.elementID)
             switch (event.kind, event.value) {
             case (.press, _):
                 pressed.insert(event.elementID)
@@ -137,10 +147,74 @@ public struct XTouchOneConsole: Sendable {
                     encoderTicks += Int(delta)
                 }
             case (.absolute, .number(let value)) where event.elementID == "encoder.turn": encoderTicks = Int(value)
+            case (.absolute, .number(let value)) where event.elementID == "fader" && link == .mock: mockFader = UInt8(value)
             default: break
             }
             if demoLinks { try demonstrate(event, at: at) }
+            if event.kind == .contactEnded { workspace.endInputGroup() }
+            if newPress, event.elementID != "fader" || link == .mock || faderTouched == true {
+                if let slot = try workspace.receive(event), agents != nil {
+                    try invokeAgent(slot, origin: link == .mock ? .interface : .hardware, at: at)
+                }
+            }
         }
+    }
+
+    public mutating func startAgents(at: Double) throws {
+        guard agents == nil else { return }
+        var plugin = try AgentPlugin(approvalPolicy: .interfaceOnly, at: at)
+        _ = try plugin.handle(.start, at: at)
+        agents = plugin
+    }
+
+    public mutating func stopAgents(at: Double) throws {
+        guard var plugin = agents else { return }
+        let update = try plugin.handle(.stop, at: at)
+        agents = nil
+        try presentAgents(update, at: at)
+    }
+
+    public mutating func invokeAgent(_ slot: Int, origin: InputOrigin = .interface, at: Double) throws {
+        guard var plugin = agents else { throw PluginError(code: .stopped) }
+        let action = ActionReference(pluginID: AgentPlugin.pluginID, actionID: AgentPlugin.primaryActionID, index: slot)
+        let update = try plugin.handle(.invoke(action, origin: origin), at: at)
+        agents = plugin
+        try presentAgents(update, at: at)
+    }
+
+    public mutating func interruptAgent(_ slot: Int, at: Double) throws {
+        guard var plugin = agents else { throw PluginError(code: .stopped) }
+        let update = try plugin.interrupt(slot, at: at)
+        agents = plugin
+        try presentAgents(update, at: at)
+    }
+
+    public mutating func advanceAgents(at: Double) throws {
+        guard var plugin = agents else { return }
+        let update = try plugin.handle(.advance, at: at)
+        agents = plugin
+        try presentAgents(update, at: at)
+    }
+
+    private mutating func presentAgents(_ update: PluginUpdate, at: Double) throws {
+        guard !update.events.isEmpty else { return }
+        guard session.isConnected, session.outputPolicy == .write else { return }
+        for (control, binding) in workspace.configuration.bindings.sorted(by: { $0.key < $1.key }) {
+            guard case .agent(let slot) = binding, control.hasPrefix("button."),
+                  let address = UInt8(control.dropFirst(7)), let button = XTouchOneButton(rawValue: address),
+                  let semantic = update.indicators[AgentPlugin.indicatorID(for: slot)]?.semantic else { continue }
+            let state: XTouchOneButtonLED = semantic == .active ? .on : semantic == .attention ? .flash : .off
+            try request(.buttonLED(button, state), at: at)
+        }
+    }
+
+    /// Apply software parameter feedback to the bound encoder. A fader target is never emitted here.
+    public mutating func repaintParameterFeedback(at: Double) throws {
+        guard session.isConnected, session.outputPolicy == .write,
+              case .parameter(let id) = workspace.configuration.bindings["encoder.turn"],
+              let definition = workspace.definition(id), let value = workspace.values[id] else { return }
+        let position = UInt8((try definition.normalized(value) * 127).rounded())
+        try request(.encoderRing(position), at: at)
     }
 
     private mutating func demonstrate(_ event: DeviceInputEvent, at: Double) throws {
@@ -230,9 +304,10 @@ public struct XTouchOneConsole: Sendable {
     public mutating func note(_ text: String, at: Double) { append(.note, [], text, at) }
 
     private mutating func append(_ kind: Entry.Kind, _ bytes: [UInt8], _ text: String, _ at: Double,
-                                 result: FeedbackAttemptResult? = nil) {
+                                 result: FeedbackAttemptResult? = nil, connection: Bool? = nil) {
         nextEntry += 1
-        log.append(Entry(id: nextEntry, at: at, generation: session.generation, kind: kind, bytes: bytes, text: text, result: result))
+        log.append(Entry(id: nextEntry, at: at, generation: session.generation, kind: kind, bytes: bytes, text: text,
+                         result: result, connection: connection))
         if log.count > Self.logLimit { log.removeFirst(log.count - Self.logLimit) }
     }
 

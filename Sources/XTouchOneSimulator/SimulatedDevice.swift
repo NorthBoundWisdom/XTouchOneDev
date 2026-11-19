@@ -57,6 +57,12 @@ public struct XTouchOneSimulatedDevice: Equatable, Sendable {
     public func moveFader(to position: UInt8) -> [UInt8] { [control, 70, min(position, 127)] }
     public func turnJog(clockwise: Bool) -> [UInt8] { [control, 88, clockwise ? 65 : 1] }
 
+    public mutating func setEncoder(to position: UInt8) -> [UInt8] {
+        guard !isRelative else { return [] }
+        encoderValue = min(position, 127)
+        return [control, 80, encoderValue]
+    }
+
     /// One detent. Absolute modes report the new value and stop at the ends of the range.
     public mutating func turnEncoder(clockwise: Bool) -> [UInt8] {
         if isRelative { return [control, 80, clockwise ? 65 : 1] }

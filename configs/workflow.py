@@ -11,7 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRATCH = ["--scratch-path", "build/swiftpm"]
-PRODUCTS = ("xtouch-one-monitor", "xtouch-one-review")
+PRODUCTS = ("xtouch-one-monitor", "xtouch-one-review", "xtouch-one-surface")
 APP = "XTouchOneApp"
 APP_ICON = "AppIcon.icns"
 BUNDLE_ID = "com.northboundwisdom.xtouchone"
@@ -21,11 +21,13 @@ def swift(*arguments: str, environment: dict[str, str] | None = None) -> int:
     return subprocess.run(["swift", *arguments], cwd=ROOT, env=environment).returncode
 
 
-def bundle_app() -> Path:
+def bundle_app(binary: Path | None = None, app: Path | None = None) -> Path:
     """Wrap the debug executable in an ad-hoc signed .app so macOS treats it as a regular application."""
-    binary = Path(subprocess.run(["swift", "build", *SCRATCH, "--show-bin-path"], cwd=ROOT, check=True,
-                                 capture_output=True, text=True).stdout.strip()) / APP
-    app = ROOT / "build" / "app" / f"{APP}.app"
+    if binary is None:
+        binary = Path(subprocess.run(["swift", "build", *SCRATCH, "--show-bin-path"], cwd=ROOT, check=True,
+                                     capture_output=True, text=True).stdout.strip()) / APP
+    if app is None:
+        app = ROOT / "build" / "app" / f"{APP}.app"
     if app.is_symlink() or (ROOT / "build").is_symlink() or (ROOT / "build" / "app").is_symlink():
         raise ValueError("Refusing a symlinked build path.")
     shutil.rmtree(app, ignore_errors=True)
@@ -84,7 +86,10 @@ def main() -> int:
         else:
             environment.pop("XTOUCH_ONE_COREMIDI_TESTS", None)
         return swift("test", *SCRATCH, environment=environment)
-    status = swift("run", *SCRATCH, args.product, *args.arguments)
+    arguments = args.arguments
+    if args.usage and args.product == "xtouch-one-surface" and not arguments:
+        arguments = ["--help"]
+    status = swift("run", *SCRATCH, args.product, *arguments)
     # Both commands print their usage and exit 2 when called without arguments.
     return 0 if args.usage and status == 2 else status
 

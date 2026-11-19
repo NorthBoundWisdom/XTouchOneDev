@@ -20,6 +20,7 @@ swift test --scratch-path build/swiftpm
 | `XTouchOneSurface` | 接到 SurfacePlugins 控制合同的实体 surface | macOS、Linux |
 | `XTouchOneCapture`、`xtouch-one-review` | 录制文件格式与离线审查 | macOS、Linux |
 | `XTouchOneCoreMIDI`、`xtouch-one-monitor` | 数据包编解码（全平台）、CoreMIDI 端点与监听命令（仅 macOS） | 见左 |
+| `xtouch-one-surface` | 标准输入输出上的 MCP 模拟与实体 Surface 服务 | 模拟 macOS、Linux；实体 macOS |
 | `XTouchOnePanel` | 面板布局、七段字形、应用背后的控制台状态 | macOS、Linux |
 | `XTouchOneApp` | SwiftUI 面板应用 | 仅 macOS |
 | `XTouchOneSimulator` | 按文档独立实现的设备模型，供测试和应用的模拟来源使用 | macOS、Linux |
@@ -39,7 +40,7 @@ swift test --scratch-path build/swiftpm
 | Test | Swift Tests（缺省） | `python3 -B configs/workflow.py test` | 与硬件无关的全部测试，不打开任何 MIDI 端点 |
 | Test | CoreMIDI Loopback（仅 macOS） | `python3 -B configs/workflow.py test --coremidi-loopback` | 另外运行回环测试，只用测试自建的虚拟端点 |
 
-没有 Package 动作，因为还没有交付件。FreeCM 的命令本身都不向设备发送；面板应用里向实体端点写入需要在界面上显式打开。配置输入变化后面板显示 **Needs Config**，重新执行 Config 即可。
+**Package → Universal ZIP and DMG** 会调用 `python3 -B configs/package_release.py --architecture universal`，在 `build/deliveries/` 生成 ZIP、DMG、构建记录及 SHA-256。它复用锁定 Kit 的打包工具，检查二进制架构、签名和包外离线启动。签名类型为本地 ad-hoc。FreeCM 的构建和测试入口只使用隔离模拟。配置输入变化后面板显示 **Needs Config**，重新执行 Config 即可。
 
 `configs/source_root_workflow.py` 提供插件的初始化与更新入口（`--initrepo`、`--update`，都执行同一个配置），`--initlock` 报告两份锁文件，`--cleanbuild [--dry-run]` 只删除 `build/configured.json`、`build/swiftpm` 和 `build/app`，保留 `build/dependencies`。`configs/_vendor/` 是从 XTouchCompactDev 原样复制的清单校验器（MIT，来源见其中的 `UPSTREAM.json`），不需要 FreeCM 检出，Swift 目标不使用它。无界面校验：`python3 -B configs/validate_repo_commands.py`。
 
@@ -83,7 +84,7 @@ swift test --scratch-path build/swiftpm
 - `issueDisplay` 校验并发出一次发送，`completeDisplay` 只在传输接受且仍属于发出时的代次时才记录反馈事件。其余情况不记录并抛 `invalid_transition`。
 - `transition` 连接或断开都换 epoch、清空观察，不产生输出。epoch 由调用方提供。
 
-这里没有 HTTP 传输、凭据和进程入口。两个现有宿主各有一套，按工作区计划要先合并再复用，One 不再复制第三套。
+实体适配器可通过 `xtouch-one-surface` 的本机 MCP stdio 入口使用。HTTP 和凭据沿用工作区的统一服务计划。
 
 ## 面板应用
 
@@ -97,6 +98,17 @@ swift test --scratch-path build/swiftpm
 - `XTouchOneApp --snapshot <png> [--sample] [--tab values|lights|monitor] [--hardware] [--size <宽>x<高>]` 在屏幕外排版整个窗口，写一张图后退出，不显示窗口，也不打开 MIDI 端点。宽高为正整数，每边上限 8192，总面积上限 16777216 平方点。
 
 实体来源的显示速率用了一个保守的占位值（每秒 50 条），不是经过验证的设备预算。
+
+### 软件工作区
+
+| 工作区 | 功能 |
+| --- | --- |
+| 参数 | 编辑共享参数定义、量程、步长、单位和权限，给推子、编码器及拨轮分配参数，给按键和脚踏分配设定、步进、切换、循环、分组重置、宏或模拟 Agent。宏最多 64 步，应用和撤销均以整份宏为单位。 |
+| 组织 | 设置控件别名与颜色、高亮参数组、保存和调用场景、撤销/重做、命名配置库及 JSON 导入导出。配置带设备型号和格式版本。可显式加入参考机械臂参数并查看软件姿态。 |
+| Agent | 显式开启八个共享 AgentPlugin 模拟槽位，可启动、中止并在面板批准。已绑定灯在运行时亮、等待批准时闪烁。 |
+| 录制 | 将当前连接、原始输入和传输已接受的输出保存为 JSONL。审查覆盖率、异常和电机报文，原生录制可回放输入到隔离模拟会话。Compact 格式可查看设备名及收发条数。单条显示测试也在此工作区。 |
+
+参数、配置库、场景和软件值保存到 `~/Library/Application Support/XTouchOneConsole/workspace.json`。读到无效文件时保留原文件并显示错误。`--isolated` 使用临时内存工作区，`--startup-smoke` 验证离线启动后退出。载入配置、调用场景和撤销保留已有电机召回门禁，推子目标值仍由面板上的本地确认发送。
 
 ## 命令行
 
@@ -138,6 +150,16 @@ printf '%s\n' \
 | `quit` | 结束会话，丢弃待发送显示。标准输入 EOF 同样结束会话。 |
 
 实体会话只把 CoreMIDI 端点收到的数据记为实体输入，并使用传输回执报告显示写入。`--mode` 和 `--channel` 选择应用解码方式。官方 MIDI 协议没有读取固件、切换设备模式或远程触发实体按键的命令。实体推子召回仍走面板应用中的本地确认。持续输入留档可并行运行只读的 `record`。
+
+### MCP 客户端入口
+
+将 `xtouch-one-surface` 注册为客户端启动的 **stdio** 命令。它使用 MCP 2025-11-25，复用 SurfacePlugins 的发现、快照、输入、显示反馈、事件游标和租约工具。默认启动独立模拟，`--write` 开放模拟修改，配合 `--admin` 开放模拟重置。`--mode`、`--channel` 和 `--configuration <json>` 可选择模拟配置。下列模块按需开启。
+
+```sh
+build/swiftpm/debug/xtouch-one-surface --mode MidiRel --write --agent-sim --robot-sim --chassis-sim --output-sim
+```
+
+macOS 实体入口使用 `--hardware-input <id>`，默认只读并声明来源 `hardware`。如需实体显示，可加 `--write --hardware-output <id>`。两个端点须属于同一台 X-Touch One，掉线后恢复输入观察，重新写入须启动一个显式授权的会话。实体服务只表达按钮灯、灯环和电平表反馈，输入事件仅来自所选设备。直接写入间隔至少 20 ms。
 
 CoreMIDI 回环测试只使用测试自己创建的虚拟端点，缺省跳过，用 `XTOUCH_ONE_COREMIDI_TESTS=1` 开启。
 

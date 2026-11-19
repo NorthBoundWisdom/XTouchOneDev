@@ -26,6 +26,11 @@ public struct XTouchOneMIDIEndpoint: Encodable, Equatable, Sendable {
     /// True when no device entity owns the endpoint, as for endpoints created by software.
     public let isVirtual: Bool
 
+    public var isXTouchOne: Bool {
+        !isVirtual && manufacturer?.caseInsensitiveCompare("Behringer") == .orderedSame
+            && model?.caseInsensitiveCompare("X-Touch One") == .orderedSame
+    }
+
     public static func all(_ direction: Direction) -> [XTouchOneMIDIEndpoint] {
         let count = direction == .source ? MIDIGetNumberOfSources() : MIDIGetNumberOfDestinations()
         return (0..<count).compactMap { index in

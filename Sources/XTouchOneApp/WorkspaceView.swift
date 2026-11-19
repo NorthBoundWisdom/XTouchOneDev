@@ -10,15 +10,26 @@ struct WorkspaceTabsView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Picker("工作区", selection: $model.tab) {
-                ForEach(WorkspaceTab.allCases) { Label($0.title, systemImage: $0.systemImage).tag($0) }
+            ViewThatFits(in: .horizontal) {
+                tabPicker.pickerStyle(.segmented)
+                tabPicker.pickerStyle(.menu)
             }
-            .pickerStyle(.segmented).labelsHidden().accessibilityIdentifier("workspace.selection")
+            .labelsHidden().accessibilityIdentifier("workspace.selection")
             switch model.tab {
             case .values: ValueListView(model: model)
             case .lights: LightListView(model: model)
             case .monitor: MIDIMonitorView(model: model)
+            case .parameters: ParametersWorkspace(model: model)
+            case .organize: OrganizeWorkspace(model: model)
+            case .agents: AgentsWorkspace(model: model)
+            case .capture: CaptureWorkspace(model: model)
             }
+        }
+    }
+
+    private var tabPicker: some View {
+        Picker("工作区", selection: $model.tab) {
+            ForEach(WorkspaceTab.allCases) { Label($0.title, systemImage: $0.systemImage).tag($0) }
         }
     }
 }
